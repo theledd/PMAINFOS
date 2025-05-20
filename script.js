@@ -78,6 +78,15 @@
             show(screenId);
         };
 
+        const navigateToDashboard = (user) => {
+            if (!user) {
+                showScreen('login-screen');
+                return;
+            }
+            // Aqui você pode diferenciar dashboards por perfil, se quiser
+            showScreen('user-dashboard'); // Exemplo: sempre mostra o dashboard do usuário
+        };
+
         // --- Funções de Autenticação ---
         const handleLogin = async (event) => {
             event.preventDefault();
@@ -149,30 +158,6 @@
             loggedInUser = null;
             saveData();
             showScreen('login-screen');
-        };
-
-        const navigateToDashboard = () => {
-            if (!loggedInUser) {
-                showScreen('login-screen');
-                return;
-            }
-            switch (loggedInUser.role) {
-                case USER_ROLES.USER:
-                    showScreen('user-dashboard');
-                    displayUserDashboard();
-                    break;
-                case USER_ROLES.TECHNICIAN:
-                    showScreen('technician-dashboard');
-                    displayTechnicianDashboard();
-                    break;
-                case USER_ROLES.ADMIN:
-                    showScreen('admin-panel');
-                    displayAdminPanel();
-                    break;
-                default:
-                    console.warn("Papel de usuário desconhecido:", loggedInUser.role);
-                    handleLogout(); // Desloga se o papel for inválido
-            }
         };
 
         // --- Funções da Tela do Usuário ---
@@ -1312,7 +1297,14 @@
         // --- Inicialização e Event Listeners ---
         const initApp = () => {
             console.log("Inicializando aplicação de OS PMA...");
-            loadData();
+            // Adiciona listener de autenticação do Firebase
+            firebase.auth().onAuthStateChanged((user) => {
+                if (user) {
+                    navigateToDashboard(user);
+                } else {
+                    showScreen('login-screen');
+                }
+            });
 
             // --- Event Listeners ---
 
