@@ -154,36 +154,35 @@
             }
         };
 
-        const handleLogout = () => {
-            loggedInUser = null;
-            saveData();
+        const handleLogout = async () => {
+            await signOut();
             showScreen('login-screen');
         };
 
         // --- Funções da Tela do Usuário ---
-        const displayUserDashboard = () => {
-            getElement('user-welcome-name').textContent = loggedInUser.name;
+        const displayUserDashboard = async () => {
+            // Pega o usuário autenticado do Firebase
+            const user = firebase.auth().currentUser;
+            if (!user) return;
+            getElement('user-welcome-name').textContent = user.displayName || user.email;
             hide('new-os-form');
             hide('edit-profile-form');
             show('user-actions');
-            displayUserOSList();
-            // Preencher formulário de edição com dados atuais
-            getElement('edit-profile-name').value = loggedInUser.name;
-            getElement('edit-profile-department').value = loggedInUser.department;
-            getElement('edit-profile-whatsapp').value = loggedInUser.whatsapp;
-            getElement('edit-profile-email').value = loggedInUser.email; // Email não editável
+            await displayUserOSList();
+            // Preencher formulário de edição com dados atuais (opcional, se quiser usar dados extras do Firestore)
         };
 
-        const displayUserOSList = () => {
+        const displayUserOSList = async () => {
             const osListContainer = getElement('user-os-list');
-            const userOS = serviceOrders.filter(os => os.userId === loggedInUser.id)
-                                      .sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate)); // Mais recentes primeiro
-
+            const user = firebase.auth().currentUser;
+            if (!user) return;
+            // Busca as OS do usuário logado no Firestore
+            const allOS = await loadData('ordensDeServico');
+            const userOS = (allOS && allOS.ordens) ? allOS.ordens.filter(os => os.userId === user.uid) : [];
             if (userOS.length === 0) {
                 osListContainer.innerHTML = '<p>Você ainda não abriu nenhuma Ordem de Serviço.</p>';
                 return;
             }
-
             osListContainer.innerHTML = userOS.map(os => `
                 <div class="os-card priority-${os.priority?.toLowerCase() || 'media'}">
                     <h4>OS #${os.id.substring(3, 8)} - ${os.problemType}</h4>
@@ -191,59 +190,45 @@
                     <p><strong>Prioridade:</strong> ${os.priority || 'Média'}</p>
                     <p><strong>Data Abertura:</strong> ${formatDate(os.createdDate)}</p>
                     <p><strong>Descrição:</strong> ${os.description?.length > 100 ? os.description.substring(0, 100) + '...' : os.description}</p>
-                     <p><strong>Técnico:</strong> ${os.technicianName || 'Não atribuído'}</p>
-                    ${os.status === OS_STATUS.CONCLUIDA && !os.feedback ?
-                        `<button class="button button-info button-small" onclick="showFeedbackModal('${os.id}')">Dar Feedback</button>`
-                        : ''
-                    }
-                     ${os.status === OS_STATUS.CONCLUIDA && os.feedback ?
-                        `<p style="margin-top:5px; font-style: italic;"><strong>Seu Feedback:</strong> ${os.feedback}</p>`
-                        : ''
-                    }
-                     <button class="button button-secondary button-small" onclick="viewOsDetails('${os.id}', false)">Ver Detalhes</button>
-                     ${os.updates && os.updates.length > 1 ? `<button class="button-link button-small" onclick="viewOsDetails('${os.id}', false)">Ver Histórico (${os.updates.length-1} atualizações)</button>` : ''}
+                    <button class="button button-secondary button-small" onclick="viewOsDetails('${os.id}', false)">Ver Detalhes</button>
                 </div>
             `).join('');
         };
 
-        const handleNewOSSubmit = (event) => {
+        const handleNewOSSubmit = async (event) => {
             event.preventDefault();
-             const problemType = getElement('os-problem-type').value;
-             const priority = getElement('os-priority').value;
-             const description = getElement('os-description').value.trim();
-
-             if (!problemType || !priority || !description) {
-                 alert("Por favor, preencha todos os campos da Ordem de Serviço.");
-                 return;
-             }
-
+            const user = firebase.auth().currentUser;
+            if (!user) {
+                alert('Usuário não autenticado!');
+                return;
+            }
+            const problemType = getElement('os-problem-type').value;
+            const priority = getElement('os-priority').value;
+            const description = getElement('os-description').value.trim();
+            if (!problemType || !priority || !description) {
+                alert("Por favor, preencha todos os campos da Ordem de Serviço.");
+                return;
+            }
             const newOS = {
                 id: generateId(),
-                userId: loggedInUser.id,
-                userName: loggedInUser.name,
-                userDepartment: loggedInUser.department,
+                userId: user.uid,
+                userName: user.displayName || user.email,
                 problemType: problemType,
                 description: description,
                 priority: priority,
-                status: OS_STATUS.ABERTA,
+                status: 'Aberta',
                 createdDate: new Date().toISOString(),
-                technicianId: null, // Nenhum técnico atribuído inicialmente
-                technicianName: 'Não atribuído',
-                updates: [{
-                    timestamp: new Date().toISOString(),
-                    status: OS_STATUS.ABERTA,
-                    notes: 'Ordem de Serviço criada pelo usuário.',
-                    changedBy: loggedInUser.name
-                }],
-                feedback: null
             };
-            serviceOrders.push(newOS);
-            saveData();
+            // Salva a nova OS no Firestore
+            let allOS = await loadData('ordensDeServico');
+            if (!allOS || !allOS.ordens) allOS = { ordens: [] };
+            allOS.ordens.push(newOS);
+            await saveData('ordensDeServico', allOS);
             getElement('new-os-form').reset();
             hide('new-os-form');
             show('user-actions');
-            displayUserOSList(); // Atualiza a lista
-             alert('Ordem de Serviço aberta com sucesso!');
+            await displayUserOSList();
+            alert('Ordem de Serviço aberta com sucesso!');
         };
 
         const handleEditProfileSubmit = (event) => {
@@ -317,248 +302,70 @@
         };
 
 
-        // --- Funções da Tela do Técnico ---
-        const displayTechnicianDashboard = () => {
-            getElement('tech-welcome-name').textContent = loggedInUser.name;
-            populateTechnicianDropdown('os-details-technician'); // Popula dropdown no modal
-            resetFilters(); // Exibe todas as OSs inicialmente e limpa filtros
+        // --- Funções da Tela do Técnico/Admin ---
+        const displayTechnicianDashboard = async () => {
+            const user = firebase.auth().currentUser;
+            if (!user) return;
+            getElement('tech-welcome-name').textContent = user.displayName || user.email;
+            await resetFilters();
         };
 
-        const applyFilters = () => {
-            const filters = {
-                type: getElement('filter-type').value,
-                department: getElement('filter-department').value.trim().toLowerCase(),
-                status: getElement('filter-status').value,
-                priority: getElement('filter-priority').value,
-                dateStart: getElement('filter-date-start').value,
-                dateEnd: getElement('filter-date-end').value,
-            };
-            displayTechnicianOSList(filters);
-        };
-
-         const resetFilters = () => {
-            getElement('filter-type').value = "";
-            getElement('filter-department').value = "";
-            getElement('filter-status').value = "";
-            getElement('filter-priority').value = "";
-            getElement('filter-date-start').value = "";
-            getElement('filter-date-end').value = "";
-            applyFilters(); // Aplica para mostrar tudo
-        };
-
-        const displayTechnicianOSList = (filters = {}) => {
+        const displayTechnicianOSList = async (filters = {}) => {
             const osListContainer = getElement('technician-os-list');
-
-            let filteredOS = serviceOrders.filter(os => {
-                let match = true;
-                if (filters.type && os.problemType !== filters.type) match = false;
-                if (filters.department && !(os.userDepartment || '').toLowerCase().includes(filters.department)) match = false;
-                if (filters.status && os.status !== filters.status) match = false;
-                if (filters.priority && os.priority !== filters.priority) match = false;
-                if (filters.dateStart) {
-                    try {
-                        const startDate = new Date(filters.dateStart + "T00:00:00");
-                        if (new Date(os.createdDate) < startDate) match = false;
-                    } catch (e) { console.warn("Data inicial inválida no filtro"); }
-                }
-                if (filters.dateEnd) {
-                    try {
-                         const endDate = new Date(filters.dateEnd + "T23:59:59");
-                         if (new Date(os.createdDate) > endDate) match = false;
-                     } catch (e) { console.warn("Data final inválida no filtro"); }
-                }
-                return match;
-            });
-
-             filteredOS.sort((a, b) => {
-                // Ordenar por status (Aberta/Andamento > Concluida), depois Prioridade, depois Data
-                const statusOrder = { [OS_STATUS.ABERTA]: 3, [OS_STATUS.EM_ANDAMENTO]: 2, [OS_STATUS.CONCLUIDA]: 1 };
-                const statusA = statusOrder[a.status] || 0;
-                const statusB = statusOrder[b.status] || 0;
-                 if (statusB !== statusA) {
-                     return statusB - statusA;
-                 }
-
-                 // Se status for igual, ordenar por prioridade
-                const priorityOrder = { [OS_PRIORITY.CRITICA]: 4, [OS_PRIORITY.ALTA]: 3, [OS_PRIORITY.MEDIA]: 2, [OS_PRIORITY.BAIXA]: 1 };
-                const priorityA = priorityOrder[a.priority] || 0;
-                const priorityB = priorityOrder[b.priority] || 0;
-                if (priorityB !== priorityA) {
-                    return priorityB - priorityA;
-                }
-
-                // Se prioridade igual, ordenar por data (mais recentes primeiro)
-                return new Date(b.createdDate) - new Date(a.createdDate);
-            });
-
-
+            // Busca todas as OS do Firestore
+            const allOS = await loadData('ordensDeServico');
+            let filteredOS = (allOS && allOS.ordens) ? allOS.ordens : [];
+            // Aplica filtros (tipo, depto, status, prioridade, datas)
+            if (filters.type) filteredOS = filteredOS.filter(os => os.problemType === filters.type);
+            if (filters.department) filteredOS = filteredOS.filter(os => (os.userDepartment || '').toLowerCase().includes(filters.department));
+            if (filters.status) filteredOS = filteredOS.filter(os => os.status === filters.status);
+            if (filters.priority) filteredOS = filteredOS.filter(os => os.priority === filters.priority);
+            if (filters.dateStart) filteredOS = filteredOS.filter(os => new Date(os.createdDate) >= new Date(filters.dateStart + 'T00:00:00'));
+            if (filters.dateEnd) filteredOS = filteredOS.filter(os => new Date(os.createdDate) <= new Date(filters.dateEnd + 'T23:59:59'));
+            filteredOS.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
             if (filteredOS.length === 0) {
                 osListContainer.innerHTML = '<p>Nenhuma Ordem de Serviço encontrada com os filtros aplicados.</p>';
                 return;
             }
-
-             osListContainer.innerHTML = filteredOS.map(os => `
+            osListContainer.innerHTML = filteredOS.map(os => `
                 <div class="os-card priority-${os.priority?.toLowerCase() || 'media'}">
                     <h4>OS #${os.id.substring(3, 8)} - ${os.problemType}</h4>
-                     <p><strong>Solicitante:</strong> ${os.userName || 'N/A'} (${os.userDepartment || 'N/A'})</p>
+                    <p><strong>Solicitante:</strong> ${os.userName || 'N/A'}</p>
                     <p><strong>Status:</strong> <span class="os-status-${os.status?.toLowerCase().replace(' ', '-') || 'aberta'}">${os.status}</span></p>
                     <p><strong>Prioridade:</strong> ${os.priority || 'Média'}</p>
                     <p><strong>Data Abertura:</strong> ${formatDate(os.createdDate)}</p>
-                     <p><strong>Técnico:</strong> ${os.technicianName || 'Não atribuído'}</p>
                     <p><strong>Descrição:</strong> ${os.description?.length > 100 ? os.description.substring(0, 100) + '...' : os.description}</p>
-                     <button class="button button-primary button-small" onclick="viewOsDetails('${os.id}', true)">Gerenciar OS</button>
-                      ${os.feedback ? `<p style="margin-top:10px; padding: 5px; background: #e0f7fa; border-left: 3px solid #00acc1; font-style: italic;"><strong>Feedback do Usuário:</strong> ${os.feedback}</p>` : ''}
+                    <button class="button button-primary button-small" onclick="viewOsDetails('${os.id}', true)">Gerenciar OS</button>
                 </div>
             `).join('');
         };
 
-        const viewOsDetails = (osId, isTechnicianView) => {
-            const os = serviceOrders.find(o => o.id === osId);
-            if (!os) {
-                alert("Ordem de serviço não encontrada.");
-                return;
-            }
-
-            getElement('os-details-id').value = osId;
-            getElement('os-details-title').textContent = `Detalhes da OS #${os.id.substring(3, 8)} (${os.problemType})`;
-
-            const detailsContent = getElement('os-details-content');
-            detailsContent.innerHTML = `
-                <p><strong>Solicitante:</strong> ${os.userName || 'N/A'}</p>
-                <p><strong>Departamento:</strong> ${os.userDepartment || 'N/A'}</p>
-                <p><strong>Data Abertura:</strong> ${formatDate(os.createdDate)}</p>
-                <p><strong>Status Atual:</strong> <span class="os-status-${os.status?.toLowerCase().replace(' ', '-') || 'aberta'}">${os.status}</span></p>
-                 <p><strong>Prioridade:</strong> ${os.priority || 'Média'}</p>
-                 <p><strong>Técnico Atribuído:</strong> ${os.technicianName || 'Não atribuído'}</p>
-                <p><strong>Descrição do Problema:</strong></p>
-                <p style="white-space: pre-wrap; background: #f9f9f9; padding: 10px; border-radius: 3px; border: 1px solid #eee; max-height: 150px; overflow-y: auto;">${os.description || '(Sem descrição)'}</p>
-                ${os.feedback ? `<p style="margin-top:10px; font-style: italic;"><strong>Feedback do Usuário:</strong> ${os.feedback}</p>` : ''}
-            `;
-
-             // Popula dropdown de técnicos ANTES de setar o valor
-             populateTechnicianDropdown('os-details-technician');
-
-            // Preencher campos de atualização
-            getElement('os-details-status').value = os.status;
-            getElement('os-details-notes').value = ''; // Limpar notas
-            getElement('os-details-technician').value = os.technicianId || ''; // Seleciona técnico atual ou vazio
-
-            // Mostrar/ocultar controles de técnico/admin
-            const updateSection = getElement('os-details-modal').querySelector('hr').nextElementSibling; // Pega a div/form após o primeiro hr
-            const updateButton = getElement('os-details-update-btn');
-             const closeButton = updateButton.nextElementSibling; // Pega o botão fechar
-             if (isTechnicianView || loggedInUser?.role === USER_ROLES.ADMIN) {
-                updateSection.style.display = '';
-                updateButton.style.display = '';
-                 closeButton.textContent = 'Fechar'; // Texto padrão se pode editar
-             } else {
-                 updateSection.style.display = 'none';
-                 updateButton.style.display = 'none';
-                 closeButton.textContent = 'OK'; // Muda texto se só visualiza
-             }
-
-
-            // Exibir histórico
-            const historyContainer = getElement('os-details-history');
-            const updates = os.updates || [];
-            if (updates.length > 0) {
-                historyContainer.innerHTML = updates
-                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)) // Mais recente primeiro
-                    .map(update => `
-                    <div style="border-bottom: 1px dotted #ccc; margin-bottom: 8px; padding-bottom: 8px;">
-                        <p style="margin-bottom: 3px;"><strong>${formatDate(update.timestamp)}:</strong> Status: <strong>${update.status || 'N/A'}</strong></p>
-                        <p style="margin-bottom: 3px;"><strong>Por:</strong> ${update.changedBy || 'Sistema'}</p>
-                        ${update.technicianName ? `<p style="margin-bottom: 3px;"><strong>Técnico:</strong> ${update.technicianName}</p>` : ''}
-                        ${update.notes ? `<p style="margin-bottom: 0; font-size: 0.9em;"><em>Obs: ${update.notes}</em></p>` : ''}
-                    </div>
-                `).join('');
-            } else {
-                historyContainer.innerHTML = '<p>Nenhum histórico de mudanças registrado.</p>';
-            }
-
-            showModal('os-details-modal');
-        };
-
-        const handleUpdateOS = () => {
+        const handleUpdateOS = async () => {
             const osId = getElement('os-details-id').value;
             const newStatus = getElement('os-details-status').value;
             const notes = getElement('os-details-notes').value.trim();
-            const technicianId = getElement('os-details-technician').value;
-            const technicianSelect = getElement('os-details-technician');
-            // Garante que pega o texto correto mesmo se a opção não for encontrada (improvável)
-            const selectedOption = technicianSelect.options[technicianSelect.selectedIndex];
-            const technicianName = technicianId && selectedOption ? selectedOption.text : 'Não atribuído';
-
-            const osIndex = serviceOrders.findIndex(o => o.id === osId);
+            // (Atribuição de técnico pode ser implementada aqui se desejar)
+            // Busca todas as OS
+            let allOS = await loadData('ordensDeServico');
+            if (!allOS || !allOS.ordens) return;
+            const osIndex = allOS.ordens.findIndex(o => o.id === osId);
             if (osIndex === -1) {
                 alert('Erro: OS não encontrada.');
                 return;
             }
-
-            const currentOS = serviceOrders[osIndex];
-            let changed = false;
-            let updateNotes = [];
-
-            // Verifica o que mudou para incluir no histórico
-             if (currentOS.status !== newStatus) {
-                 updateNotes.push(`Status alterado de "${currentOS.status}" para "${newStatus}".`);
-                 changed = true;
-             }
-             if (currentOS.technicianId !== (technicianId || null)) {
-                 updateNotes.push(`Técnico alterado de "${currentOS.technicianName || 'N/A'}" para "${technicianName}".`);
-                 changed = true;
-             }
-             if (notes) {
-                 updateNotes.push(`Adicionada observação.`);
-                 changed = true;
-             }
-
-             if (!changed) {
-                 alert("Nenhuma alteração detectada (Status, Técnico ou Observações).");
-                 // closeModal('os-details-modal'); // Fecha mesmo se não mudou? Ou deixa aberto? Deixar aberto.
-                 return;
-             }
-
-            const updateEntry = {
+            // Atualiza status e histórico
+            allOS.ordens[osIndex].status = newStatus;
+            if (!allOS.ordens[osIndex].updates) allOS.ordens[osIndex].updates = [];
+            allOS.ordens[osIndex].updates.push({
                 timestamp: new Date().toISOString(),
                 status: newStatus,
-                notes: notes, // Nota digitada pelo técnico/admin
-                changedBy: loggedInUser.name, // Quem fez a alteração
-                technicianName: technicianName // Registra o nome do técnico no momento da atualização
-                // details: updateNotes.join(' ') // Opcional: descrição automática das mudanças
-            };
-
-            // Garante que os.updates exista
-            if (!serviceOrders[osIndex].updates) {
-                serviceOrders[osIndex].updates = [];
-            }
-
-            serviceOrders[osIndex].updates.push(updateEntry);
-            serviceOrders[osIndex].status = newStatus;
-            serviceOrders[osIndex].technicianId = technicianId || null;
-            serviceOrders[osIndex].technicianName = technicianName;
-
-
-            saveData();
+                notes: notes,
+                changedBy: firebase.auth().currentUser.displayName || firebase.auth().currentUser.email
+            });
+            await saveData('ordensDeServico', allOS);
             closeModal('os-details-modal');
-
-            // Atualiza a lista relevante
-            if (loggedInUser.role === USER_ROLES.TECHNICIAN) {
-                 applyFilters();
-             } else if (loggedInUser.role === USER_ROLES.ADMIN) {
-                 // Se o admin estiver na tela de técnico (improvável aqui) ou painel admin, atualiza
-                 // A melhor abordagem seria atualizar a view atual, mas para simplificar:
-                 if (getElement('technician-dashboard').checkVisibility()) {
-                     applyFilters();
-                 } else if (getElement('admin-panel').checkVisibility()){
-                      // Atualizar alguma view no admin panel se necessário (ex: dashboard)
-                      displayAdminDashboardSummary();
-                 }
-             } else if (loggedInUser.role === USER_ROLES.USER) {
-                displayUserOSList();
-            }
-             alert('Ordem de Serviço atualizada com sucesso!');
-
+            await displayTechnicianOSList();
+            alert('Ordem de Serviço atualizada com sucesso!');
         };
 
         // --- Funções do Painel Administrativo ---
@@ -619,15 +426,14 @@
             `;
          };
 
-        const displayPendingUsers = () => {
+        const displayPendingUsers = async () => {
             const pendingList = getElement('pending-users-list');
-            const pending = users.filter(u => !u.approved);
-
+            const allUsers = await loadData('usuarios');
+            const pending = (allUsers && allUsers.lista) ? allUsers.lista.filter(u => !u.approved) : [];
             if (pending.length === 0) {
                 pendingList.innerHTML = '<p>Nenhum usuário aguardando aprovação.</p>';
                 return;
             }
-
             pendingList.innerHTML = `
                 <div style="overflow-x: auto;">
                 <table>
@@ -659,33 +465,26 @@
             `;
         };
 
-        const approveUser = (userId) => {
-            const userIndex = users.findIndex(u => u.id === userId);
+        const approveUser = async (userId) => {
+            let allUsers = await loadData('usuarios');
+            if (!allUsers || !allUsers.lista) return;
+            const userIndex = allUsers.lista.findIndex(u => u.id === userId);
             if (userIndex > -1) {
-                users[userIndex].approved = true;
-                saveData();
-                displayPendingUsers(); // Atualiza a lista de pendentes
-                 displayAllUsers(); // Atualiza a lista geral também (se estiver visível)
-                 displayAdminDashboardSummary(); // Atualiza contagem no dashboard
-                 alert(`Usuário ${users[userIndex].name} aprovado com sucesso.`);
+                allUsers.lista[userIndex].approved = true;
+                await saveData('usuarios', allUsers);
+                await displayPendingUsers();
+                alert(`Usuário aprovado com sucesso.`);
             }
         };
 
-         const rejectUser = (userId) => {
-              const user = users.find(u => u.id === userId);
-              if (!user) return;
-             showConfirmationModal(
-                 `Tem certeza que deseja REJEITAR e EXCLUIR o cadastro pendente de "${user.name}" (${user.email})? Esta ação não pode ser desfeita.`,
-                 () => {
-                     users = users.filter(u => u.id !== userId);
-                     saveData();
-                     displayPendingUsers();
-                     displayAllUsers(); // Atualiza a lista geral também
-                     displayAdminDashboardSummary(); // Atualiza contagem no dashboard
-                     alert('Usuário rejeitado e removido com sucesso.');
-                 }
-             );
-         };
+        const rejectUser = async (userId) => {
+            let allUsers = await loadData('usuarios');
+            if (!allUsers || !allUsers.lista) return;
+            allUsers.lista = allUsers.lista.filter(u => u.id !== userId);
+            await saveData('usuarios', allUsers);
+            await displayPendingUsers();
+            alert('Usuário rejeitado e removido com sucesso.');
+        };
 
          const displayAllUsers = () => {
             const allUsersList = getElement('all-users-list');
