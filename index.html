@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Ordens de Serviço - PMA</title>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.x.x/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.x.x/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.x.x/firebase-firestore-compat.js"></script>
+    
+    <!-- Configuração do Firebase -->
+    <script src="firebase-config.js"></script>
+    
+    <!-- Seus estilos CSS existentes aqui -->
+    <style>
+        /* Cole aqui todo o CSS do seu arquivo original */
+        
+        /* --- Reset Básico e Estilos Globais --- */
+        :root {
+            --primary-color: #0056b3; /* Azul Prefeitura */
+            --secondary-color: #f8f9fa; /* Cinza Claro */
+            --dark-color: #343a40;
+            --light-color: #ffffff;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
+            --danger-color: #dc3545;
+            --info-color: #17a2b8;
+            --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            --border-radius: 5px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-family);
+            line-height: 1.6;
+            background-color: var(--secondary-color);
+            color: var(--dark-color);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: var(--light-color);
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: var(--border-radius);
+            flex-grow: 1; /* Faz o container crescer para empurrar o footer */
+        }
+
+        h1, h2, h3 {
+            color: var(--primary-color);
+            margin-bottom: 1em;
+        }
+
+        /* --- Utilidades --- */
+        .hidden {
+            display: none !important;
+        }
+
+        .button {
+            display: inline-block;
+            padding: 10px 15px;
+            border: none;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-size: 1rem;
+            text-align: center;
+            text-decoration: none;
+            margin: 5px 5px 5px 0;
+            transition: background-color 0.3s ease;
+        }
+
+        .button-primary { background-color: var(--primary-color); color: var(--light-color); }
+        .button-primary:hover { background-color: #004085; }
+        .button-secondary { background-color: #6c757d; color: var(--light-color); }
+        .button-secondary:hover { background-color: #5a6268; }
+        .button-success { background-color: var(--success-color); color: var(--light-color); }
+        .button-success:hover { background-color: #218838; }
+        .button-danger { background-color: var(--danger-color); color: var(--light-color); }
+        .button-danger:hover { background-color: #c82333; }
+        .button-warning { background-color: var(--warning-color); color: var(--dark-color); }
+        .button-warning:hover { background-color: #e0a800; }
+        .button-info { background-color: var(--info-color); color: var(--light-color); }
+        .button-info:hover { background-color: #138496; }
+        .button-link { background: none; border: none; color: var(--primary-color); text-decoration: underline; cursor: pointer; padding: 0; margin: 0; }
+        .button-small { padding: 5px 10px; font-size: 0.9rem; }
+
+        /* --- Formulários --- */
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .form-group input[type="text"],
+        .form-group input[type="email"],
+        .form-group input[type="password"],
+        .form-group input[type="tel"],
+        .form-group input[type="date"],
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: var(--border-radius);
+            font-size: 1rem;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 5px rgba(0, 86, 179, 0.3);
+        }
+
+        .error-message {
+            color: var(--danger-color);
+            font-size: 0.9em;
+            margin-top: 5px;
+            display: block; /* Ensure it takes space */
+        }
+        .success-message {
+            color: var(--success-color);
+            font-size: 0.9em;
+            margin-top: 5px;
+            display: block; /* Ensure it takes space */
+        }
+
+
+        /* --- Tabelas --- */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        th {
+            background-color: var(--primary-color);
+            color: var(--light-color);
+        }
+
+        tbody tr:nth-child(even) {
+            background-color: var(--secondary-color);
+        }
+
+        tbody tr:hover {
+            background-color: #e9ecef;
+        }
+
+        /* --- Cards (Alternativa para OS) --- */
+        .os-card {
+            border: 1px solid #ccc;
+            border-radius: var(--border-radius);
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: var(--light-color);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .os-card h4 {
+            margin-bottom: 10px;
+            color: var(--primary-color);
+        }
+
+        .os-card p {
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+
+        .os-card strong {
+            min-width: 120px; /* Alinhamento */
+            display: inline-block;
+        }
+
+        .os-status-aberta { color: var(--info-color); font-weight: bold; }
+        .os-status-em-andamento { color: var(--warning-color); font-weight: bold; }
+        .os-status-concluida { color: var(--success-color); font-weight: bold; }
+        .os-status-pendente { color: #6c757d; font-weight: bold; } /* Para usuários pendentes */
+
+
+        .priority-baixa { border-left: 5px solid #6c757d; }
+        .priority-media { border-left: 5px solid var(--info-color); }
+        .priority-alta { border-left: 5px solid var(--warning-color); }
+        .priority-critica { border-left: 5px solid var(--danger-color); }
+
+        /* --- Rodapé --- */
+        footer {
+            background-color: var(--dark-color);
+            color: var(--light-color);
+            text-align: center;
+            padding: 15px 0;
+            margin-top: auto; /* Empurra para baixo */
+            width: 100%;
+        }
+
+        /* --- Telas Específicas --- */
+        #login-screen, #register-screen {
+            max-width: 400px;
+            margin: 50px auto; /* Centraliza vertical e horizontal */
+        }
+
+        /* --- Painel Admin --- */
+        .admin-sections button {
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .admin-section {
+            border: 1px solid #eee;
+            padding: 20px;
+            margin-top: 20px;
+            border-radius: var(--border-radius);
+            background-color: #fdfdfd;
+        }
+
+        /* --- Dashboard Resumo (Simulação de Gráficos) --- */
+        .dashboard-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .summary-card {
+            background-color: var(--secondary-color);
+            padding: 20px;
+            border-radius: var(--border-radius);
+            border-left: 5px solid var(--primary-color);
+        }
+
+        .summary-card h4 {
+            margin-bottom: 15px;
+            color: var(--primary-color);
+        }
+        .summary-card p {
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+        }
+
+        /* --- Filtros --- */
+        .filter-section {
+            background-color: #f1f1f1;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: var(--border-radius);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: flex-end;
+        }
+         .filter-section .form-group {
+             margin-bottom: 0; /* Remove margin bottom within filter */
+             flex: 1 1 180px; /* Allow wrapping */
+         }
+         .filter-section button {
+            flex-shrink: 0; /* Prevent button from shrinking */
+         }
+
+        /* --- Modal --- */
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1000; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgba(0,0,0,0.5); /* Black w/ opacity */
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto; /* 15% from the top and centered */
+            padding: 30px;
+            border: 1px solid #888;
+            width: 80%; /* Could be more or less, depending on screen size */
+            max-width: 500px;
+            border-radius: var(--border-radius);
+            position: relative;
+        }
+
+        .modal-close {
+            color: #aaa;
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .modal-close:hover,
+        .modal-close:focus {
+            color: black;
+            text-decoration: none;
+        }
+
+        .modal-buttons {
+            text-align: right;
+            margin-top: 20px;
+        }
+
+        /* --- Responsividade --- */
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+                padding: 15px;
+            }
+
+            #login-screen, #register-screen {
+                margin: 20px auto;
+                width: 90%;
+            }
+
+            .filter-section {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .filter-section .form-group {
+                width: 100%;
+            }
+
+            th, td {
+                padding: 8px;
+                font-size: 0.9rem;
+            }
+
+            /* Ocultar colunas menos importantes em tabelas */
+            .hide-mobile {
+                display: none;
+            }
+
+            .os-card strong {
+               display: block; /* Stack label and value */
+               min-width: auto;
+               margin-bottom: 3px;
+            }
+            .os-card p {
+                margin-bottom: 12px;
+            }
+
+            .dashboard-summary {
+                grid-template-columns: 1fr; /* Stack summary cards */
+            }
+
+            .modal-content {
+                width: 90%;
+                margin: 20% auto;
+            }
+        }
+
+         @media (max-width: 480px) {
+            h1 { font-size: 1.8rem; }
+            h2 { font-size: 1.5rem; }
+            .button { width: 100%; margin: 5px 0;} /* Full width buttons */
+            .modal-buttons .button { width: auto; } /* Except modal buttons */
+         }
+
+    
+    </style>
+</head>
+<body>
+    <!-- Seu HTML existente aqui -->
+     <!DOCTYPE html>
+
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Sistema de Ordens de Serviço - PMA</title>
+
+<link href="style.css" rel="stylesheet"/></head>
+<body>
+<div id="app-container">
+<!-- Tela de Login -->
+<div class="container" id="login-screen">
+<h2>Login - Sistema de OS</h2>
+<div class="error-message hidden" id="login-error"></div>
+<form id="login-form">
+<div class="form-group">
+<!-- MODIFICADO: Label e Input para aceitar email ou telefone -->
+<label for="login-identity">E-mail ou Telefone (WhatsApp):</label>
+<input id="login-identity" placeholder="seu@email.com ou (XX) XXXXX-XXXX" required="" type="text"/>
+<!-- Fim da Modificação -->
+</div>
+<div class="form-group">
+<label for="login-password">Senha:</label>
+<input id="login-password" required="" type="password"/>
+</div>
+<button class="button button-primary" type="submit">Entrar</button>
+<button class="button button-link" id="show-register-btn" type="button">Criar Novo Cadastro</button>
+<p style="margin-top: 15px; font-size: 0.9em; color: #555;">
+                     Usuário Admin Padrão: <strong>Admin</strong> / Senha: <strong>senha123</strong><br/>
+                     (Ou use o email/telefone cadastrado)
+                 </p>
+</form>
+</div>
+<!-- Tela de Cadastro -->
+<div class="container hidden" id="register-screen">
+<h2>Cadastro de Novo Usuário</h2>
+<div class="hidden" id="register-message"></div>
+<form id="register-form">
+<div class="form-group">
+<label for="register-name">Nome Completo:</label>
+<input id="register-name" required="" type="text"/>
+</div>
+<div class="form-group">
+<label for="register-department">Departamento:</label>
+<input id="register-department" required="" type="text"/>
+</div>
+<div class="form-group">
+<label for="register-whatsapp">Número de WhatsApp:</label>
+<input id="register-whatsapp" placeholder="(XX) XXXXX-XXXX" required="" type="tel"/>
+</div>
+<div class="form-group">
+<label for="register-email">E-mail/Login:</label>
+<input id="register-email" required="" type="email"/>
+</div>
+<div class="form-group">
+<label for="register-password">Senha:</label>
+<input id="register-password" required="" type="password"/>
+</div>
+<button class="button button-success" type="submit">Cadastrar</button>
+<button class="button button-link" id="show-login-btn" type="button">Já tenho cadastro</button>
+</form>
+</div>
+<!-- Tela do Usuário -->
+<div class="container hidden" id="user-dashboard">
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+<h2>Minhas Ordens de Serviço</h2>
+<button class="button button-secondary" id="logout-btn-user">Sair</button>
+</div>
+<p>Bem-vindo(a), <strong id="user-welcome-name"></strong>!</p>
+<div id="user-actions">
+<button class="button button-primary" id="show-new-os-form-btn">Abrir Nova OS</button>
+<button class="button button-info" id="show-edit-profile-form-btn">Editar Meus Dados</button>
+</div>
+<!-- Formulário Nova OS -->
+<form class="hidden" id="new-os-form" style="margin-top: 20px; border: 1px solid #eee; padding: 15px; border-radius: var(--border-radius);">
+<h3>Nova Ordem de Serviço</h3>
+<div class="form-group">
+<label for="os-problem-type">Tipo de Problema:</label>
+<select id="os-problem-type" required="">
+<option value="">Selecione...</option>
+<option value="Problema de internet">Problema de internet</option>
+<option value="Problema com Computador">Problema com Computador</option>
+<option value="Problema com Sistema">Problema com Sistema</option>
+<option value="Problema com Impressoras">Problema com Impressoras</option>
+<option value="Problema com Ramal Telefônico">Problema com Ramal Telefônico</option>
+<option value="Problema com Rede de dados">Problema com Rede de dados</option>
+<option value="Outros">Outros</option>
+</select>
+</div>
+<div class="form-group">
+<label for="os-priority">Prioridade:</label>
+<select id="os-priority" required="">
+<option value="Baixa">Baixa</option>
+<option selected="" value="Media">Média</option>
+<option value="Alta">Alta</option>
+<option value="Critica">Crítica</option>
+</select>
+</div>
+<div class="form-group">
+<label for="os-description">Descrição Detalhada:</label>
+<textarea id="os-description" required=""></textarea>
+</div>
+<button class="button button-success" type="submit">Abrir OS</button>
+<button class="button button-secondary" id="cancel-new-os-btn" type="button">Cancelar</button>
+</form>
+<!-- Formulário Editar Perfil -->
+<form class="hidden" id="edit-profile-form" style="margin-top: 20px; border: 1px solid #eee; padding: 15px; border-radius: var(--border-radius);">
+<h3>Editar Meus Dados</h3>
+<div class="form-group">
+<label for="edit-profile-name">Nome Completo:</label>
+<input id="edit-profile-name" required="" type="text"/>
+</div>
+<div class="form-group">
+<label for="edit-profile-department">Departamento:</label>
+<input id="edit-profile-department" required="" type="text"/>
+</div>
+<div class="form-group">
+<label for="edit-profile-whatsapp">Número de WhatsApp:</label>
+<input id="edit-profile-whatsapp" required="" type="tel"/>
+</div>
+<div class="form-group">
+<label for="edit-profile-email">E-mail/Login (Não editável):</label>
+<input disabled="" id="edit-profile-email" type="email"/>
+</div>
+<button class="button button-success" type="submit">Salvar Alterações</button>
+<button class="button button-secondary" id="cancel-edit-profile-btn" type="button">Cancelar</button>
+</form>
+<h3>Minhas OS Abertas</h3>
+<div id="user-os-list">
+<!-- Lista de OS do usuário será inserida aqui -->
+<p>Nenhuma OS encontrada.</p>
+</div>
+</div>
+<!-- Tela do Técnico -->
+<div class="container hidden" id="technician-dashboard">
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+<h2>Gerenciamento de Ordens de Serviço</h2>
+<button class="button button-secondary" id="logout-btn-tech">Sair</button>
+</div>
+<p>Bem-vindo(a), Técnico(a) <strong id="tech-welcome-name"></strong>!</p>
+<h3>Filtrar Ordens de Serviço</h3>
+<div class="filter-section">
+<div class="form-group">
+<label for="filter-type">Tipo de Problema:</label>
+<select id="filter-type">
+<option value="">Todos</option>
+<option value="Problema de internet">Problema de internet</option>
+<option value="Problema com Computador">Problema com Computador</option>
+<option value="Problema com Sistema">Problema com Sistema</option>
+<option value="Problema com Impressoras">Problema com Impressoras</option>
+<option value="Problema com Ramal Telefônico">Problema com Ramal Telefônico</option>
+<option value="Problema com Rede de dados">Problema com Rede de dados</option>
+<option value="Outros">Outros</option>
+</select>
+</div>
+<div class="form-group">
+<label for="filter-department">Departamento:</label>
+<input id="filter-department" placeholder="Nome do departamento" type="text"/>
+</div>
+<div class="form-group">
+<label for="filter-status">Status:</label>
+<select id="filter-status">
+<option value="">Todos</option>
+<option value="Aberta">Aberta</option>
+<option value="Em andamento">Em andamento</option>
+<option value="Concluida">Concluída</option>
+</select>
+</div>
+<div class="form-group">
+<label for="filter-priority">Prioridade:</label>
+<select id="filter-priority">
+<option value="">Todas</option>
+<option value="Baixa">Baixa</option>
+<option value="Media">Média</option>
+<option value="Alta">Alta</option>
+<option value="Critica">Crítica</option>
+</select>
+</div>
+<div class="form-group">
+<label for="filter-date-start">Data Início:</label>
+<input id="filter-date-start" type="date"/>
+</div>
+<div class="form-group">
+<label for="filter-date-end">Data Fim:</label>
+<input id="filter-date-end" type="date"/>
+</div>
+<button class="button button-primary" id="apply-filters-btn">Filtrar</button>
+<button class="button button-secondary" id="reset-filters-btn">Limpar Filtros</button>
+</div>
+<h3>Ordens de Serviço</h3>
+<div id="technician-os-list">
+<!-- Lista de todas as OS será inserida aqui -->
+<p>Nenhuma OS encontrada.</p>
+</div>
+</div>
+<!-- Painel Administrativo -->
+<div class="container hidden" id="admin-panel">
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+<h2>Painel Administrativo</h2>
+<button class="button button-secondary" id="logout-btn-admin">Sair</button>
+</div>
+<p>Bem-vindo(a), Admin <strong id="admin-welcome-name"></strong>!</p>
+<div class="admin-sections">
+<button class="button button-info" onclick="showAdminSection('admin-dashboard')">Dashboard</button>
+<button class="button button-info" onclick="showAdminSection('admin-approve-users')">Aprovar Usuários</button>
+<button class="button button-info" onclick="showAdminSection('admin-manage-users')">Gerenciar Usuários</button>
+<button class="button button-info" onclick="showAdminSection('admin-reports')">Relatórios</button>
+</div>
+<!-- Seção Dashboard Admin -->
+<div class="admin-section" id="admin-dashboard">
+<h3>Dashboard Resumo</h3>
+<div class="dashboard-summary" id="admin-summary">
+<!-- Cards de resumo serão inseridos aqui -->
+<p>Carregando resumo...</p>
+</div>
+<!-- Placeholder para gráficos futuros
+                 <div id="charts-placeholder">
+                     <h4>Visualização Gráfica (Simulado)</h4>
+                     <div style="background:#eee; padding: 10px; margin-bottom:10px; border-radius: 5px;">Gráfico de OS por Status (Placeholder)</div>
+                     <div style="background:#eee; padding: 10px; border-radius: 5px;">Gráfico de OS por Tipo (Placeholder)</div>
+                 </div>
+                 -->
+</div>
+<!-- Seção Aprovar Usuários -->
+<div class="admin-section hidden" id="admin-approve-users">
+<h3>Aprovar Novos Usuários</h3>
+<div id="pending-users-list">
+<!-- Lista de usuários pendentes -->
+<p>Nenhum usuário pendente.</p>
+</div>
+</div>
+<!-- Seção Gerenciar Usuários -->
+<div class="admin-section hidden" id="admin-manage-users">
+<h3>Gerenciar Usuários e Técnicos</h3>
+<button class="button button-success" id="show-add-user-form-btn">Adicionar Novo Usuário/Técnico</button>
+<!-- Formulário para Adicionar/Editar Usuário (Admin) -->
+<form class="hidden" id="admin-add-edit-user-form" style="margin-top: 20px; border: 1px solid #eee; padding: 15px; border-radius: var(--border-radius);">
+<h4 id="admin-user-form-title">Adicionar Novo Usuário/Técnico</h4>
+<input id="admin-edit-user-id" type="hidden"/>
+<div class="form-group">
+<label for="admin-user-name">Nome Completo:</label>
+<input id="admin-user-name" required="" type="text"/>
+</div>
+<div class="form-group">
+<label for="admin-user-department">Departamento:</label>
+<input id="admin-user-department" required="" type="text"/>
+</div>
+<div class="form-group">
+<label for="admin-user-whatsapp">WhatsApp:</label>
+<input id="admin-user-whatsapp" placeholder="(XX) XXXXX-XXXX" required="" type="tel"/>
+</div>
+<div class="form-group">
+<label for="admin-user-email">E-mail/Login:</label>
+<input id="admin-user-email" required="" type="email"/>
+</div>
+<div class="form-group">
+<label for="admin-user-password">Senha:</label>
+<input id="admin-user-password" type="password"/>
+<small id="admin-password-hint" style="display: block; margin-top: 3px;"></small>
+</div>
+<div class="form-group">
+<label for="admin-user-role">Perfil:</label>
+<select id="admin-user-role" required="">
+<option value="user">Usuário</option>
+<option value="technician">Técnico</option>
+<option value="admin">Administrador</option>
+</select>
+</div>
+<div class="form-group">
+<label for="admin-user-approved">Status:</label>
+<select id="admin-user-approved" required="">
+<option value="true">Aprovado</option>
+<option value="false">Pendente</option>
+</select>
+</div>
+<button class="button button-success" type="submit">Salvar Usuário</button>
+<button class="button button-secondary" id="admin-cancel-user-form-btn" type="button">Cancelar</button>
+</form>
+<div id="all-users-list" style="margin-top: 20px;">
+<!-- Lista de todos os usuários -->
+<p>Carregando usuários...</p>
+</div>
+</div>
+<!-- Seção Relatórios -->
+<div class="admin-section hidden" id="admin-reports">
+<h3>Relatórios</h3>
+<div class="form-group">
+<label for="report-type">Tipo de Relatório:</label>
+<select id="report-type">
+<option value="">Selecione...</option>
+<option value="technician">Por Técnico</option>
+<option value="department">Por Setor/Departamento</option>
+<option value="problem_type">Por Tipo de Problema</option>
+<option value="all_os">Todas as OS</option>
+<option value="all_users">Todos os Usuários</option>
+</select>
+</div>
+<!-- Filtros adicionais para relatórios -->
+<div class="filter-section">
+<div class="form-group">
+<label for="report-date-start">Data Início:</label>
+<input id="report-date-start" type="date"/>
+</div>
+<div class="form-group">
+<label for="report-date-end">Data Fim:</label>
+<input id="report-date-end" type="date"/>
+</div>
+<div class="form-group">
+<label for="report-status-filter">Status OS:</label>
+<select id="report-status-filter">
+<option value="">Todos</option>
+<option value="Aberta">Aberta</option>
+<option value="Em andamento">Em andamento</option>
+<option value="Concluida">Concluída</option>
+</select>
+</div>
+</div>
+<button class="button button-primary" id="generate-report-btn">Gerar Relatório</button>
+<div id="report-output" style="margin-top: 20px;">
+<!-- Resultado do relatório será exibido aqui -->
+</div>
+<div class="hidden" id="export-buttons" style="margin-top: 20px;">
+<h4>Exportar Dados Gerados</h4>
+<button class="button button-success" id="export-csv-btn">Exportar CSV (Power BI / Excel)</button>
+<button class="button button-success" disabled="" id="export-excel-btn">Exportar EXCEL (.xlsx)</button> <!-- Desabilitado por limitação -->
+<button class="button button-danger" disabled="" id="export-pdf-btn">Exportar PDF</button> <!-- Desabilitado por limitação -->
+<small style="display:block; margin-top: 5px;">(Funcionalidade de EXCEL e PDF requer bibliotecas adicionais ou backend)</small>
+</div>
+</div>
+</div>
+<!-- Modal de Confirmação -->
+<div class="modal" id="confirmation-modal">
+<div class="modal-content">
+<span class="modal-close" onclick="closeModal('confirmation-modal')">×</span>
+<h4>Confirmação Necessária</h4>
+<p id="confirmation-message">Você tem certeza?</p>
+<div class="modal-buttons">
+<button class="button button-danger" id="confirm-action-btn">Confirmar</button>
+<button class="button button-secondary" onclick="closeModal('confirmation-modal')">Cancelar</button>
+</div>
+</div>
+</div>
+<!-- Modal de Detalhes/Edição OS (Técnico) -->
+<div class="modal" id="os-details-modal">
+<div class="modal-content">
+<span class="modal-close" onclick="closeModal('os-details-modal')">×</span>
+<h4 id="os-details-title">Detalhes da OS #</h4>
+<div id="os-details-content"></div>
+<hr style="margin: 15px 0;"/>
+<h4>Atualizar Status / Adicionar Observação</h4>
+<input id="os-details-id" type="hidden"/>
+<div class="form-group">
+<label for="os-details-status">Novo Status:</label>
+<select id="os-details-status">
+<option value="Aberta">Aberta</option>
+<option value="Em andamento">Em andamento</option>
+<option value="Concluida">Concluída</option>
+</select>
+</div>
+<div class="form-group">
+<label for="os-details-technician">Técnico Responsável:</label>
+<select id="os-details-technician">
+<!-- Técnicos serão populados aqui -->
+</select>
+</div>
+<div class="form-group">
+<label for="os-details-notes">Observações do Atendimento:</label>
+<textarea id="os-details-notes" placeholder="Descreva o que foi feito..."></textarea>
+</div>
+<div class="modal-buttons">
+<button class="button button-primary" id="os-details-update-btn">Atualizar OS</button>
+<button class="button button-secondary" onclick="closeModal('os-details-modal')">Fechar</button>
+</div>
+<hr style="margin: 15px 0;"/>
+<h4>Histórico de Mudanças</h4>
+<div id="os-details-history" style="max-height: 150px; overflow-y: auto; font-size: 0.9em; background: #f9f9f9; padding: 5px; border-radius: 3px;">
+<!-- Histórico será carregado aqui -->
+</div>
+</div>
+</div>
+<!-- Modal de Feedback (Usuário) -->
+<div class="modal" id="os-feedback-modal">
+<div class="modal-content">
+<span class="modal-close" onclick="closeModal('os-feedback-modal')">×</span>
+<h4 id="os-feedback-title">Feedback da OS #</h4>
+<input id="os-feedback-id" type="hidden"/>
+<p>Por favor, deixe seu feedback sobre o atendimento recebido para esta Ordem de Serviço.</p>
+<div class="form-group">
+<label for="os-feedback-comment">Comentário:</label>
+<textarea id="os-feedback-comment" rows="4"></textarea>
+</div>
+<div class="modal-buttons">
+<button class="button button-success" id="submit-feedback-btn">Enviar Feedback</button>
+<button class="button button-secondary" onclick="closeModal('os-feedback-modal')">Cancelar</button>
+</div>
+</div>
+</div>
+</div><!-- Fim #app-container -->
+<footer>
+        PREFEITURA MUNICIPAL DE AQUIDAUANA - NÚCLEO DE TECNOLOGIA
+    </footer>
+
+<script src="script.js"></script></body>
+</html>
+```
+    <div id="app-container">
+        <!-- Cole aqui todo o HTML do seu arquivo original -->
+    </div>
+
+    <!-- Seus scripts existentes aqui -->
+    <script>
+        // Cole aqui todo o JavaScript do seu arquivo original
+        // Mas remova as funções de persistência local (localStorage)
+        // e use as novas funções do Firebase
+    </script>
+</body>
+</html> 

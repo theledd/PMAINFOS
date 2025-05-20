@@ -79,4 +79,4 @@ Para suporte ou dúvidas, entre em contato com o Núcleo de Tecnologia da PMA.
 
 - Todas as senhas são armazenadas de forma segura no Firebase
 - O sistema usa autenticação por email/senha
-- Os dados são protegidos por regras de segurança do Firestore
+- Os dados são protegidos por regras de segurança do Firestore 
