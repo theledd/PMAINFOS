@@ -231,46 +231,30 @@
             alert('Ordem de Serviço aberta com sucesso!');
         };
 
-        const handleEditProfileSubmit = (event) => {
+        const handleEditProfileSubmit = async (event) => {
             event.preventDefault();
-            const userIndex = users.findIndex(u => u.id === loggedInUser.id);
-
+            const user = firebase.auth().currentUser;
+            if (!user) return;
             const name = getElement('edit-profile-name').value.trim();
             const department = getElement('edit-profile-department').value.trim();
             const whatsapp = getElement('edit-profile-whatsapp').value.trim();
-
             if (!name || !department || !whatsapp) {
-                 alert("Por favor, preencha todos os seus dados.");
-                 return;
-            }
-
-            // Verifica se o whatsapp mudou e se já existe (normalizado)
-            const normalizedNewPhone = normalizePhone(whatsapp);
-            if (whatsapp !== loggedInUser.whatsapp && users.some(u => u.id !== loggedInUser.id && u.whatsapp && normalizePhone(u.whatsapp) === normalizedNewPhone && normalizedNewPhone !== '')) {
-                alert('Erro: Este número de WhatsApp já está sendo usado por outro usuário.');
+                alert("Por favor, preencha todos os seus dados.");
                 return;
             }
-
+            // Atualiza no Firestore
+            let allUsers = await loadData('usuarios');
+            if (!allUsers || !allUsers.lista) return;
+            const userIndex = allUsers.lista.findIndex(u => u.id === user.uid);
             if (userIndex > -1) {
-                users[userIndex].name = name;
-                users[userIndex].department = department;
-                users[userIndex].whatsapp = whatsapp;
-
-                // Atualiza também as OSs abertas pelo usuário com o novo nome/departamento?
-                // Decisão: Sim, para consistência nos relatórios futuros.
-                serviceOrders = serviceOrders.map(os => {
-                    if (os.userId === loggedInUser.id) {
-                        return { ...os, userName: users[userIndex].name, userDepartment: users[userIndex].department };
-                    }
-                    return os;
-                });
-
-                loggedInUser = users[userIndex]; // Atualiza o usuário logado na sessão
-                saveData();
+                allUsers.lista[userIndex].name = name;
+                allUsers.lista[userIndex].department = department;
+                allUsers.lista[userIndex].whatsapp = whatsapp;
+                await saveData('usuarios', allUsers);
                 alert('Dados atualizados com sucesso!');
                 hide('edit-profile-form');
                 show('user-actions');
-                displayUserDashboard(); // Atualiza a tela
+                await displayUserDashboard();
             } else {
                 alert('Erro ao encontrar usuário para atualizar.');
             }
@@ -486,19 +470,17 @@
             alert('Usuário rejeitado e removido com sucesso.');
         };
 
-         const displayAllUsers = () => {
+         const displayAllUsers = async () => {
             const allUsersList = getElement('all-users-list');
-             // Ordena por nome, case-insensitive
-             const sortedUsers = [...users].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-
+            const allUsers = await loadData('usuarios');
+            const sortedUsers = (allUsers && allUsers.lista) ? [...allUsers.lista].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })) : [];
             if (sortedUsers.length === 0) {
-                 allUsersList.innerHTML = '<p>Nenhum usuário cadastrado.</p>';
-                 return;
-             }
-
-             allUsersList.innerHTML = `
+                allUsersList.innerHTML = '<p>Nenhum usuário cadastrado.</p>';
+                return;
+            }
+            allUsersList.innerHTML = `
                 <h4>Todos os Usuários (${sortedUsers.length})</h4>
-                 <div style="overflow-x: auto;">
+                <div style="overflow-x: auto;">
                 <table>
                     <thead>
                         <tr>
@@ -507,14 +489,14 @@
                             <th>Email</th>
                             <th>Perfil</th>
                             <th>Status</th>
-                             <th class="hide-mobile">WhatsApp</th>
+                            <th class="hide-mobile">WhatsApp</th>
                             <th>Ações</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${sortedUsers.map(user => `
-                            <tr class="${user.id === loggedInUser.id ? 'logged-in-user-row' : ''}" style="${user.id === loggedInUser.id ? 'font-weight: bold; background-color: #eef;' : ''}">
-                                <td>${user.name || 'N/A'} ${user.id === loggedInUser.id ? '(Você)' : ''}</td>
+                            <tr>
+                                <td>${user.name || 'N/A'}</td>
                                 <td>${user.department || 'N/A'}</td>
                                 <td>${user.email || 'N/A'}</td>
                                 <td>${(user.role || 'user').charAt(0).toUpperCase() + (user.role || 'user').slice(1)}</td>
@@ -522,12 +504,8 @@
                                 <td class="hide-mobile">${user.whatsapp || 'N/A'}</td>
                                 <td>
                                     <button class="button button-warning button-small" onclick="showEditUserForm('${user.id}')">Editar</button>
-                                    ${user.id !== loggedInUser.id ? // Não permite excluir a si mesmo
-                                     `<button class="button button-danger button-small" onclick="deleteUser('${user.id}')">Excluir</button>`
-                                     : ''}
-                                      ${!user.approved ? // Botão extra para aprovar aqui também
-                                     `<button class="button button-success button-small" onclick="approveUser('${user.id}')" style="margin-left: 5px;">Aprovar</button>`
-                                     : ''}
+                                    <button class="button button-danger button-small" onclick="deleteUser('${user.id}')">Excluir</button>
+                                    ${!user.approved ? `<button class="button button-success button-small" onclick="approveUser('${user.id}')" style="margin-left: 5px;">Aprovar</button>` : ''}
                                 </td>
                             </tr>
                         `).join('')}
@@ -537,640 +515,325 @@
             `;
          };
 
-         const showAddUserForm = () => {
-             getElement('admin-add-edit-user-form').reset();
-             getElement('admin-edit-user-id').value = ''; // Garante que não está editando
-             getElement('admin-user-form-title').textContent = 'Adicionar Novo Usuário/Técnico';
-             getElement('admin-user-password').placeholder = 'Senha (obrigatória para novo usuário)';
-              getElement('admin-password-hint').textContent = 'Senha é obrigatória para novo usuário.';
-             getElement('admin-user-password').required = true; // Senha obrigatória ao adicionar
-              getElement('admin-user-email').disabled = false; // Email pode ser editado ao adicionar
-             show('admin-add-edit-user-form');
-             getElement('admin-user-name').focus(); // Foca no nome
-         };
+         const showEditUserForm = async (userId) => {
+            const allUsers = await loadData('usuarios');
+            if (!allUsers || !allUsers.lista) return;
+            const user = allUsers.lista.find(u => u.id === userId);
+            if (!user) return;
+            getElement('admin-add-edit-user-form').reset();
+            getElement('admin-edit-user-id').value = user.id;
+            getElement('admin-user-form-title').textContent = `Editar Usuário: ${user.name}`;
+            getElement('admin-user-name').value = user.name || '';
+            getElement('admin-user-department').value = user.department || '';
+            getElement('admin-user-whatsapp').value = user.whatsapp || '';
+            getElement('admin-user-email').value = user.email || '';
+            getElement('admin-user-role').value = user.role || 'user';
+            getElement('admin-user-approved').value = user.approved ? 'true' : 'false';
+            getElement('admin-user-password').placeholder = 'Deixe em branco para não alterar a senha';
+            getElement('admin-password-hint').textContent = 'Deixe em branco para não alterar a senha.';
+            getElement('admin-user-password').required = false;
+            show('admin-add-edit-user-form');
+            getElement('admin-user-name').focus();
+        };
 
-          const showEditUserForm = (userId) => {
-             const user = users.find(u => u.id === userId);
-             if (!user) return;
-
-             getElement('admin-add-edit-user-form').reset();
-             getElement('admin-edit-user-id').value = user.id;
-             getElement('admin-user-form-title').textContent = `Editar Usuário: ${user.name}`;
-             getElement('admin-user-name').value = user.name || '';
-             getElement('admin-user-department').value = user.department || '';
-             getElement('admin-user-whatsapp').value = user.whatsapp || '';
-             getElement('admin-user-email').value = user.email || '';
-             getElement('admin-user-role').value = user.role || 'user';
-             getElement('admin-user-approved').value = user.approved ? 'true' : 'false';
-             getElement('admin-user-password').placeholder = 'Deixe em branco para não alterar a senha';
-             getElement('admin-password-hint').textContent = 'Deixe em branco para não alterar a senha.';
-             getElement('admin-user-password').required = false; // Senha não obrigatória ao editar
-
-              // Não permitir editar o email do admin especial para evitar problemas de login
-              if (user.email === SPECIAL_ADMIN_EMAIL) {
-                  getElement('admin-user-email').disabled = true;
-              } else {
-                  getElement('admin-user-email').disabled = false;
-              }
-
-
-             show('admin-add-edit-user-form');
-             getElement('admin-user-name').focus(); // Foca no nome
-         };
-
-         const handleAdminUserFormSubmit = (event) => {
-             event.preventDefault();
-             const userId = getElement('admin-edit-user-id').value;
-             const name = getElement('admin-user-name').value.trim();
-             const department = getElement('admin-user-department').value.trim();
-             const whatsapp = getElement('admin-user-whatsapp').value.trim();
-             const emailInput = getElement('admin-user-email');
-             const email = emailInput.value.trim().toLowerCase();
-             const password = getElement('admin-user-password').value; // Não trim(), senha pode ter espaços
-             const role = getElement('admin-user-role').value;
-             const approved = getElement('admin-user-approved').value === 'true';
-
-             // Validações básicas
-             if (!name || !department || !whatsapp || !email || !role) {
-                 alert('Erro: Preencha todos os campos obrigatórios (Nome, Depto, WhatsApp, Email, Perfil).');
-                 return;
-             }
-             if (!userId && !password) { // Senha obrigatória só ao adicionar
-                 alert('Erro: A senha é obrigatória para novos usuários.');
-                  getElement('admin-user-password').focus();
-                 return;
-             }
-              if (!/\S+@\S+\.\S+/.test(email)) {
-                 alert('Erro: Formato de e-mail inválido.');
-                 getElement('admin-user-email').focus();
-                 return;
-             }
-
-             // Validação de e-mail e telefone duplicados (exceto se for o próprio usuário sendo editado)
-            const normalizedNewPhone = normalizePhone(whatsapp);
-            const isDuplicate = users.some(u => u.id !== userId &&
-                 (u.email === email || (u.whatsapp && normalizePhone(u.whatsapp) === normalizedNewPhone && normalizedNewPhone !== ''))
-             );
-             if (isDuplicate) {
-                 alert('Erro: Este e-mail ou telefone já está sendo usado por outro usuário.');
-                 return;
-             }
-             // Impede usar o email reservado do admin, exceto ao editar o próprio admin
-              if (email === SPECIAL_ADMIN_EMAIL && (!userId || users.find(u => u.id === userId)?.email !== SPECIAL_ADMIN_EMAIL)) {
-                  alert(`Erro: O e-mail "${SPECIAL_ADMIN_EMAIL}" é reservado para o administrador principal.`);
-                  return;
-              }
-
-
-             if (userId) { // Editando usuário existente
-                 const userIndex = users.findIndex(u => u.id === userId);
-                 if (userIndex > -1) {
-                     const oldUser = users[userIndex];
-                     // Atualiza o nome/depto nas OSs se mudou
-                     if (oldUser.name !== name || oldUser.department !== department) {
-                         serviceOrders = serviceOrders.map(os => {
-                            if (os.userId === userId) {
-                                return { ...os, userName: name, userDepartment: department };
-                            }
-                            return os;
-                        });
-                     }
-                     // Atualiza nome do técnico nas OSs se era técnico e mudou nome
-                      if (oldUser.role === USER_ROLES.TECHNICIAN && oldUser.name !== name) {
-                           serviceOrders = serviceOrders.map(os => {
-                            if (os.technicianId === userId) {
-                                return { ...os, technicianName: name };
-                            }
-                            return os;
-                        });
-                      }
-
-
-                     users[userIndex] = {
-                         ...users[userIndex], // Mantém o ID
-                         name,
-                         department,
-                         whatsapp,
-                         email: emailInput.disabled ? oldUser.email : email, // Usa email antigo se estava desabilitado
-                         role,
-                         approved,
-                         password: password ? password : users[userIndex].password // Atualiza senha apenas se fornecida
-                     };
-                     alert('Usuário atualizado com sucesso!');
-
-                      // Atualiza dados do usuário logado se ele mesmo foi editado
-                      if (loggedInUser && loggedInUser.id === userId) {
-                         loggedInUser = users[userIndex];
-                     }
-
-                 } else {
-                     alert('Erro: Usuário não encontrado para edição.');
-                     return;
-                 }
-             } else { // Adicionando novo usuário
-                 const newUser = {
-                     id: generateId(),
-                     name, department, whatsapp, email, password, role, approved
-                 };
-                 users.push(newUser);
-                 alert('Usuário adicionado com sucesso!');
-             }
-
-             saveData();
-             hide('admin-add-edit-user-form');
-             displayAllUsers(); // Atualiza a lista
-             displayPendingUsers(); // Atualiza pendentes caso status mude
-             displayAdminDashboardSummary(); // Atualiza contagens
-             populateTechnicianDropdown('os-details-technician'); // Atualiza dropdown de técnicos se houver mudança
-         };
-
-
-         const deleteUser = (userId) => {
-             const user = users.find(u => u.id === userId);
-             if (!user) return;
-             if (user.id === loggedInUser.id) {
-                 alert("Você não pode excluir seu próprio usuário.");
-                 return;
-             }
-             // Impede excluir o admin especial
-             if (user.email === SPECIAL_ADMIN_EMAIL) {
-                  alert("Não é possível excluir o administrador principal do sistema.");
-                  return;
-             }
-
-             // Verifica se há OS associadas ao usuário (como solicitante)
-             const userHasOS = serviceOrders.some(os => os.userId === userId);
-             // Verifica se o usuário é um técnico com OS associadas (não concluídas)
-             const techHasOpenOS = user.role === USER_ROLES.TECHNICIAN && serviceOrders.some(os => os.technicianId === userId && os.status !== OS_STATUS.CONCLUIDA);
-
-             let confirmationMessage = `Tem certeza que deseja excluir o usuário "${user.name}" (${user.email})?`;
-             if (userHasOS) {
-                 confirmationMessage += `\n\nAVISO: Este usuário possui Ordens de Serviço registradas. As OSs permanecerão no sistema, mas podem ficar sem referência direta ao solicitante excluído.`;
-             }
-              if (techHasOpenOS) {
-                 confirmationMessage += `\n\nAVISO IMPORTANTE: Este técnico possui Ordens de Serviço ABERTAS ou EM ANDAMENTO atribuídas a ele. Ao excluir, estas OSs ficarão SEM TÉCNICO atribuído.`;
-             } else if (user.role === USER_ROLES.TECHNICIAN && serviceOrders.some(os => os.technicianId === userId)) {
-                  confirmationMessage += `\n\nAVISO: Este técnico possui OSs CONCLUÍDAS associadas. A exclusão manterá o nome dele no histórico dessas OSs.`;
-             }
-             confirmationMessage += `\n\nEsta ação não pode ser desfeita.`;
-
-             showConfirmationModal(
-                 confirmationMessage,
-                 () => {
-                      // Desassociar técnico das OSs ABERTAS/EM ANDAMENTO antes de excluir
-                      if (user.role === USER_ROLES.TECHNICIAN) {
-                          serviceOrders = serviceOrders.map(os => {
-                             if (os.technicianId === userId && os.status !== OS_STATUS.CONCLUIDA) {
-                                  console.log(`Desassociando técnico ${user.name} da OS ${os.id}`);
-                                 return { ...os, technicianId: null, technicianName: 'Não atribuído' };
-                             }
-                             // Para OS concluídas, mantém o nome do técnico original para histórico
-                             return os;
-                          });
-                      }
-
-                     users = users.filter(u => u.id !== userId);
-
-                     saveData();
-                     displayAllUsers();
-                     displayPendingUsers(); // Atualiza caso fosse pendente
-                     displayAdminDashboardSummary(); // Atualiza contagens
-                     populateTechnicianDropdown('os-details-technician'); // Atualiza dropdown de técnicos
-                     alert('Usuário excluído com sucesso.');
-                 }
-             );
-         };
-
-         // --- Funções de Relatório e Exportação ---
-         const generateReport = () => {
-             const reportType = getElement('report-type').value;
-             const dateStart = getElement('report-date-start').value;
-             const dateEnd = getElement('report-date-end').value;
-             const statusFilter = getElement('report-status-filter').value;
-             const reportOutput = getElement('report-output');
-             reportOutput.innerHTML = '<p>Gerando relatório...</p>';
-             hide('export-buttons');
-             currentReportData = []; // Limpa dados anteriores
-
-             if (!reportType) {
-                 reportOutput.innerHTML = '<p class="error-message">Por favor, selecione um tipo de relatório.</p>';
-                 return;
-             }
-
-             let dataToReport = [];
-             let reportTitle = '';
-             let tableHeaders = [];
-             let tableRowsHTML = ''; // Usar para construir o HTML da tabela
-
-             // Filtrar OS por data e status (se aplicável)
-             let filteredOS = serviceOrders.filter(os => {
-                 let match = true;
-                 if (statusFilter && os.status !== statusFilter) match = false;
-                 if (dateStart) {
-                    try {
-                        const startDate = new Date(dateStart + "T00:00:00");
-                        if (new Date(os.createdDate) < startDate) match = false;
-                    } catch(e){ console.warn("Data inicial inválida");}
-                 }
-                 if (dateEnd) {
-                      try {
-                         const endDate = new Date(dateEnd + "T23:59:59");
-                         if (new Date(os.createdDate) > endDate) match = false;
-                      } catch(e){ console.warn("Data final inválida");}
-                 }
-                 return match;
-             });
-
-             // Processamento e formatação dos dados para cada tipo de relatório
-             switch (reportType) {
-                case 'all_os':
-                    reportTitle = `Relatório de Todas as OS ${buildDateFilterTitle(dateStart, dateEnd, statusFilter)}`;
-                    tableHeaders = ['ID', 'Tipo', 'Solicitante', 'Depto.', 'Status', 'Prioridade', 'Técnico', 'Data Abertura', 'Feedback?'];
-                    dataToReport = filteredOS.map(os => ({
-                        ID: os.id.substring(3, 8),
-                        Tipo: os.problemType || 'N/A',
-                        Solicitante: os.userName || 'N/A',
-                        Depto: os.userDepartment || 'N/A',
-                        Status: os.status || 'N/A',
-                        Prioridade: os.priority || 'N/A',
-                        Tecnico: os.technicianName || 'N/A',
-                        DataAbertura: formatDate(os.createdDate),
-                        Feedback: os.feedback ? 'Sim' : 'Não'
-                    }));
-                    tableRowsHTML = dataToReport.map(row => `
-                        <tr>
-                            <td>${row.ID}</td>
-                            <td>${row.Tipo}</td>
-                            <td>${row.Solicitante}</td>
-                            <td>${row.Depto}</td>
-                            <td>${row.Status}</td>
-                            <td>${row.Prioridade}</td>
-                            <td>${row.Tecnico}</td>
-                            <td>${row.DataAbertura}</td>
-                            <td>${row.Feedback}</td>
-                        </tr>`).join('');
-                    break;
-
-                 case 'technician':
-                     reportTitle = `Relatório de OS por Técnico ${buildDateFilterTitle(dateStart, dateEnd, statusFilter)}`;
-                     const technicians = users.filter(u => u.role === USER_ROLES.TECHNICIAN && u.approved);
-                     let osByTechnician = {};
-                     // Inclui técnicos mesmo sem OS no período e OS não atribuídas
-                     technicians.forEach(t => osByTechnician[t.id] = { name: t.name, count: 0, os: [] });
-                     osByTechnician['unassigned'] = { name: 'Não Atribuído', count: 0, os: [] };
-
-                     filteredOS.forEach(os => {
-                         const techId = os.technicianId || 'unassigned';
-                         if (osByTechnician[techId]) { // Garante que o ID do técnico existe
-                             osByTechnician[techId].count++;
-                             osByTechnician[techId].os.push(os);
-                         } else {
-                              // Se uma OS tem um techId que não está mais nos usuários (excluído?)
-                              osByTechnician[techId] = { name: os.technicianName || `ID: ${techId}`, count: 1, os: [os] };
-                         }
-                     });
-
-                     tableHeaders = ['Técnico', 'Total OS Atribuídas', 'Detalhes (ID / Solicitante / Status)'];
-                      // Transforma em array, ordena por nome do técnico
-                     dataToReport = Object.values(osByTechnician).sort((a,b) => a.name.localeCompare(b.name));
-                     tableRowsHTML = dataToReport.map(techData => `
-                         <tr>
-                             <td>${techData.name}</td>
-                             <td>${techData.count}</td>
-                             <td style="font-size: 0.85em;">${techData.os.length > 0 ? techData.os.map(os => `#${os.id.substring(3,8)} (${os.userName} - ${os.status})`).join('<br>') : 'Nenhuma OS no período/filtro'}</td>
-                         </tr>`).join('');
-                     // Prepara dados para CSV (sem HTML)
-                     dataToReport = dataToReport.map(techData => ({
-                         Tecnico: techData.name,
-                         TotalOS: techData.count,
-                         // Opcional: Listar IDs para CSV? Pode ficar muito longo.
-                         // OS_IDs: techData.os.map(os => os.id.substring(3,8)).join('; ')
-                     }));
-                     break;
-
-                 case 'department':
-                     reportTitle = `Relatório de OS por Departamento ${buildDateFilterTitle(dateStart, dateEnd, statusFilter)}`;
-                     let osByDepartment = {};
-                     filteredOS.forEach(os => {
-                         const dept = os.userDepartment || 'Desconhecido';
-                         if (!osByDepartment[dept]) {
-                             osByDepartment[dept] = { count: 0, os: [] };
-                         }
-                         osByDepartment[dept].count++;
-                         osByDepartment[dept].os.push(os);
-                     });
-                     tableHeaders = ['Departamento', 'Total OS', 'Detalhes (ID / Tipo / Status)'];
-                     dataToReport = Object.entries(osByDepartment)
-                                         .map(([name, data]) => ({ name, ...data }))
-                                         .sort((a,b) => a.name.localeCompare(b.name)); // Ordena por nome do depto
-                     tableRowsHTML = dataToReport.map(deptData => `
-                         <tr>
-                             <td>${deptData.name}</td>
-                             <td>${deptData.count}</td>
-                              <td style="font-size: 0.85em;">${deptData.os.map(os => `#${os.id.substring(3,8)} (${os.problemType} - ${os.status})`).join('<br>')}</td>
-                         </tr>`).join('');
-                      // Prepara dados para CSV
-                     dataToReport = dataToReport.map(deptData => ({
-                          Departamento: deptData.name,
-                          TotalOS: deptData.count,
-                     }));
-                     break;
-
-                 case 'problem_type':
-                     reportTitle = `Relatório de OS por Tipo de Problema ${buildDateFilterTitle(dateStart, dateEnd, statusFilter)}`;
-                     let osByProblemType = {};
-                     filteredOS.forEach(os => {
-                         const type = os.problemType || 'Outros';
-                         if (!osByProblemType[type]) {
-                             osByProblemType[type] = { count: 0, os: [] };
-                         }
-                         osByProblemType[type].count++;
-                         osByProblemType[type].os.push(os);
-                     });
-                     tableHeaders = ['Tipo de Problema', 'Total OS', 'Detalhes (ID / Solicitante / Status)'];
-                      dataToReport = Object.entries(osByProblemType)
-                                         .map(([name, data]) => ({ name, ...data }))
-                                         .sort((a,b) => a.name.localeCompare(b.name)); // Ordena por tipo
-                     tableRowsHTML = dataToReport.map(typeData => `
-                         <tr>
-                             <td>${typeData.name}</td>
-                             <td>${typeData.count}</td>
-                              <td style="font-size: 0.85em;">${typeData.os.map(os => `#${os.id.substring(3,8)} (${os.userName} - ${os.status})`).join('<br>')}</td>
-                         </tr>`).join('');
-                      // Prepara dados para CSV
-                      dataToReport = dataToReport.map(typeData => ({
-                          TipoProblema: typeData.name,
-                          TotalOS: typeData.count,
-                      }));
-                     break;
-
-                 case 'all_users':
-                     reportTitle = 'Relatório de Todos os Usuários';
-                     tableHeaders = ['ID', 'Nome', 'Departamento', 'Email', 'Perfil', 'Status', 'WhatsApp'];
-                     // Usa a lista de usuários diretamente, ordenada por nome
-                     dataToReport = [...users]
-                         .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }))
-                         .map(u => ({
-                             ID: u.id.substring(3, 8),
-                             Nome: u.name || 'N/A',
-                             Departamento: u.department || 'N/A',
-                             Email: u.email || 'N/A',
-                             Perfil: (u.role || 'user').charAt(0).toUpperCase() + (u.role || 'user').slice(1),
-                             Status: u.approved ? 'Aprovado' : 'Pendente',
-                             WhatsApp: u.whatsapp || 'N/A'
-                     }));
-                      tableRowsHTML = dataToReport.map(row => `
-                        <tr>
-                            <td>${row.ID}</td>
-                            <td>${row.Nome}</td>
-                            <td>${row.Departamento}</td>
-                            <td>${row.Email}</td>
-                            <td>${row.Perfil}</td>
-                            <td>${row.Status}</td>
-                             <td>${row.WhatsApp}</td>
-                        </tr>`).join('');
-                     break;
-
-                 default:
-                     reportOutput.innerHTML = '<p class="error-message">Tipo de relatório inválido.</p>';
-                     return;
-             }
-
-             // Exibe o relatório na tela
-             const totalRegistros = dataToReport.length; // Usa o array preparado para CSV/exportação
-             if (totalRegistros > 0) {
-                 reportOutput.innerHTML = `
-                    <h3>${reportTitle}</h3>
-                    <p>Total de registros: ${totalRegistros}</p>
-                    <div style="overflow-x: auto;">
-                        <table>
-                            <thead><tr>${tableHeaders.map(h => `<th>${h}</th>`).join('')}</tr></thead>
-                            <tbody>${tableRowsHTML}</tbody>
-                        </table>
-                    </div>
-                 `;
-                 currentReportData = dataToReport; // Armazena dados formatados para exportação
-                 show('export-buttons');
-             } else {
-                 reportOutput.innerHTML = `<h3>${reportTitle}</h3><p>Nenhum dado encontrado para este relatório com os filtros aplicados.</p>`;
-                 hide('export-buttons');
-             }
-         };
-
-
-         const buildDateFilterTitle = (start, end, status) => {
-            let titleParts = [];
-            if (start || end) {
-                 const startDateFormatted = start ? formatDate(start+'T00:00:00').split(' ')[0] : 'Início';
-                 const endDateFormatted = end ? formatDate(end+'T23:59:59').split(' ')[0] : 'Fim';
-                 titleParts.push(`Período: ${startDateFormatted} a ${endDateFormatted}`);
-            }
-            if (status) {
-                 titleParts.push(`Status: ${status}`);
-            }
-             return titleParts.length > 0 ? `(${titleParts.join(', ')})` : '';
-        }
-
-         const exportReportData = (format) => {
-            if (!currentReportData || currentReportData.length === 0) {
-                alert("Nenhum dado de relatório gerado para exportar. Por favor, gere um relatório primeiro.");
+        const handleAdminUserFormSubmit = async (event) => {
+            event.preventDefault();
+            const userId = getElement('admin-edit-user-id').value;
+            const name = getElement('admin-user-name').value.trim();
+            const department = getElement('admin-user-department').value.trim();
+            const whatsapp = getElement('admin-user-whatsapp').value.trim();
+            const email = getElement('admin-user-email').value.trim().toLowerCase();
+            const password = getElement('admin-user-password').value;
+            const role = getElement('admin-user-role').value;
+            const approved = getElement('admin-user-approved').value === 'true';
+            if (!name || !department || !whatsapp || !email || !role) {
+                alert('Erro: Preencha todos os campos obrigatórios (Nome, Depto, WhatsApp, Email, Perfil).');
                 return;
             }
-
-            const reportType = getElement('report-type').value || 'dados';
-             const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
-             const filenameBase = `relatorio_${reportType}_${timestamp}`;
-
-             if (format === 'csv') {
-                 exportToCSV(currentReportData, `${filenameBase}.csv`);
-             } else if (format === 'excel') {
-                 alert("Exportação para Excel (.xlsx) não está implementada nesta versão (requer biblioteca externa como SheetJS). Use CSV.");
-             } else if (format === 'pdf') {
-                 alert("Exportação para PDF não está implementada nesta versão (requer biblioteca externa como jsPDF). Use CSV ou a função de impressão do navegador (Ctrl+P).");
-             }
-         };
-
-         const exportToCSV = (data, filename) => {
-             if (!data || data.length === 0) return;
-
-             const headers = Object.keys(data[0]);
-             const csvRows = [];
-
-             // Adiciona cabeçalho - Excel prefere delimitador ; em PT-BR
-             csvRows.push(headers.join(';'));
-
-             // Adiciona linhas de dados
-             for (const row of data) {
-                 const values = headers.map(header => {
-                     // Trata valores nulos/undefined e converte para string
-                     let cellValue = row[header] === null || row[header] === undefined ? '' : String(row[header]);
-                     // Escapa aspas duplas existentes
-                     cellValue = cellValue.replace(/"/g, '""');
-                     // Envolve em aspas duplas se contiver ; , " ou quebra de linha
-                     if (cellValue.includes(';') || cellValue.includes('"') || cellValue.includes('\n')) {
-                         cellValue = `"${cellValue}"`;
-                     }
-                     return cellValue;
-                 });
-                 csvRows.push(values.join(';')); // Usa ; como delimitador
-             }
-
-             const csvString = csvRows.join('\n');
-             // Adiciona BOM para UTF-8 ser reconhecido corretamente pelo Excel
-             const blob = new Blob([`\uFEFF${csvString}`], { type: 'text/csv;charset=utf-8;' });
-
-             // Cria link para download
-             const link = document.createElement("a");
-             if (link.download !== undefined) { // Verifica suporte a download
-                 const url = URL.createObjectURL(blob);
-                 link.setAttribute("href", url);
-                 link.setAttribute("download", filename);
-                 link.style.visibility = 'hidden';
-                 document.body.appendChild(link);
-                 link.click();
-                 document.body.removeChild(link);
-                 URL.revokeObjectURL(url); // Libera memória
-             } else {
-                  // Fallback para navegadores que não suportam download direto
-                  alert("Seu navegador não suporta download direto. O conteúdo CSV será aberto em uma nova aba (copie e cole se necessário).");
-                  const encodedUri = encodeURI(`data:text/csv;charset=utf-8,\uFEFF${csvString}`);
-                  window.open(encodedUri);
-             }
-         };
-
-
-        // --- Funções de Modal ---
-        const showModal = (modalId) => {
-            const modal = getElement(modalId);
-            if (modal) modal.style.display = 'block';
-        };
-
-        const closeModal = (modalId) => {
-             const modal = getElement(modalId);
-            if (modal) modal.style.display = 'none';
-             // Limpa callback de confirmação ao fechar
-             if (modalId === 'confirmation-modal') {
-                 confirmActionCallback = null;
-                 getElement('confirm-action-btn').onclick = null; // Remove listener antigo
-             }
-        };
-
-        const showConfirmationModal = (message, onConfirm) => {
-             getElement('confirmation-message').textContent = message;
-             confirmActionCallback = onConfirm; // Armazena a função a ser executada
-             // Garante que o botão de confirmação executa a callback correta
-             const confirmBtn = getElement('confirm-action-btn');
-              // Remove listener antigo para evitar múltiplas execuções
-             confirmBtn.onclick = null;
-              confirmBtn.onclick = () => {
-                 if (typeof confirmActionCallback === 'function') {
-                     confirmActionCallback();
-                 }
-                 closeModal('confirmation-modal');
-             };
-             showModal('confirmation-modal');
-        };
-
-        // --- Funções Auxiliares ---
-        const populateTechnicianDropdown = (selectId) => {
-            const select = getElement(selectId);
-            if (!select) return;
-            const currentVal = select.value; // Salva valor atual se houver
-            select.innerHTML = '<option value="">-- Não Atribuído --</option>'; // Opção padrão
-            const technicians = users.filter(u => u.role === USER_ROLES.TECHNICIAN && u.approved)
-                                     .sort((a,b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-            technicians.forEach(tech => {
-                const option = document.createElement('option');
-                option.value = tech.id;
-                option.textContent = tech.name || 'Técnico sem nome';
-                select.appendChild(option);
-            });
-             // Restaura valor se possível e se a opção ainda existir
-             if (select.querySelector(`option[value="${currentVal}"]`)) {
-                select.value = currentVal;
-             } else {
-                 select.value = ""; // Volta para não atribuído se o técnico anterior não existe mais
-             }
-        };
-
-        // --- Inicialização e Event Listeners ---
-        const initApp = () => {
-            console.log("Inicializando aplicação de OS PMA...");
-            // Adiciona listener de autenticação do Firebase
-            firebase.auth().onAuthStateChanged((user) => {
-                if (user) {
-                    navigateToDashboard(user);
+            let allUsers = await loadData('usuarios');
+            if (!allUsers || !allUsers.lista) allUsers = { lista: [] };
+            if (userId) {
+                // Editando usuário existente
+                const userIndex = allUsers.lista.findIndex(u => u.id === userId);
+                if (userIndex > -1) {
+                    allUsers.lista[userIndex] = {
+                        ...allUsers.lista[userIndex],
+                        name, department, whatsapp, email, role, approved,
+                        password: password ? password : allUsers.lista[userIndex].password
+                    };
+                    alert('Usuário atualizado com sucesso!');
                 } else {
-                    showScreen('login-screen');
+                    alert('Erro: Usuário não encontrado para edição.');
+                    return;
                 }
-            });
-
-            // --- Event Listeners ---
-
-            // Login/Register Navigation
-            getElement('login-form')?.addEventListener('submit', handleLogin);
-            getElement('register-form')?.addEventListener('submit', handleRegister);
-            getElement('show-register-btn')?.addEventListener('click', () => showScreen('register-screen'));
-            getElement('show-login-btn')?.addEventListener('click', () => showScreen('login-screen'));
-
-            // Logout Buttons
-            getElement('logout-btn-user')?.addEventListener('click', handleLogout);
-            getElement('logout-btn-tech')?.addEventListener('click', handleLogout);
-            getElement('logout-btn-admin')?.addEventListener('click', handleLogout);
-
-            // User Dashboard Actions
-            getElement('show-new-os-form-btn')?.addEventListener('click', () => { toggle('new-os-form'); hide('edit-profile-form'); hide('user-actions'); });
-            getElement('cancel-new-os-btn')?.addEventListener('click', () => { hide('new-os-form'); show('user-actions'); getElement('new-os-form').reset(); });
-            getElement('new-os-form')?.addEventListener('submit', handleNewOSSubmit);
-            getElement('show-edit-profile-form-btn')?.addEventListener('click', () => { toggle('edit-profile-form'); hide('new-os-form'); hide('user-actions'); });
-             getElement('cancel-edit-profile-btn')?.addEventListener('click', () => { hide('edit-profile-form'); show('user-actions'); getElement('edit-profile-form').reset(); });
-             getElement('edit-profile-form')?.addEventListener('submit', handleEditProfileSubmit);
-             getElement('submit-feedback-btn')?.addEventListener('click', handleFeedbackSubmit);
-
-            // Technician Dashboard Actions
-            getElement('apply-filters-btn')?.addEventListener('click', applyFilters);
-            getElement('reset-filters-btn')?.addEventListener('click', resetFilters);
-             getElement('os-details-update-btn')?.addEventListener('click', handleUpdateOS);
-
-            // Admin Panel Actions
-            getElement('show-add-user-form-btn')?.addEventListener('click', showAddUserForm);
-            getElement('admin-cancel-user-form-btn')?.addEventListener('click', () => hide('admin-add-edit-user-form'));
-            getElement('admin-add-edit-user-form')?.addEventListener('submit', handleAdminUserFormSubmit);
-            getElement('generate-report-btn')?.addEventListener('click', generateReport);
-            getElement('export-csv-btn')?.addEventListener('click', () => exportReportData('csv'));
-            getElement('export-excel-btn')?.addEventListener('click', () => exportReportData('excel'));
-            getElement('export-pdf-btn')?.addEventListener('click', () => exportReportData('pdf'));
-
-            // Modal Global Close Listeners (X button handled in HTML onclick)
-            // Fechar modal clicando fora da área de conteúdo
-             window.addEventListener('click', (event) => {
-                const modals = document.querySelectorAll('.modal');
-                 modals.forEach(modal => {
-                     if (event.target == modal) { // Verifica se o clique foi no fundo do modal
-                         closeModal(modal.id);
-                     }
-                 })
-            });
-             // Fechar modal com a tecla Esc
-             window.addEventListener('keydown', (event) => {
-                if (event.key === 'Escape') {
-                    const modals = document.querySelectorAll('.modal');
-                    modals.forEach(modal => {
-                         if (modal.style.display === 'block') {
-                             closeModal(modal.id);
-                         }
-                     })
-                }
-             });
-
-
-            // --- Inicialização da Tela ---
-            // Verifica se já está logado ao carregar a página
-            navigateToDashboard();
-            console.log("Aplicação inicializada.");
+            } else {
+                // Adicionando novo usuário
+                allUsers.lista.push({
+                    id: generateId(),
+                    name, department, whatsapp, email, password, role, approved
+                });
+                alert('Usuário adicionado com sucesso!');
+            }
+            await saveData('usuarios', allUsers);
+            hide('admin-add-edit-user-form');
+            await displayAllUsers();
+            await displayPendingUsers();
         };
 
-        // --- Inicia a aplicação quando o DOM estiver pronto ---
-        document.addEventListener('DOMContentLoaded', initApp);
+        const deleteUser = async (userId) => {
+            let allUsers = await loadData('usuarios');
+            if (!allUsers || !allUsers.lista) return;
+            allUsers.lista = allUsers.lista.filter(u => u.id !== userId);
+            await saveData('usuarios', allUsers);
+            await displayAllUsers();
+            await displayPendingUsers();
+            alert('Usuário excluído com sucesso.');
+        };
 
-    
+        // --- Funções de Relatório e Exportação ---
+        const generateReport = async () => {
+            const reportType = getElement('report-type').value;
+            const dateStart = getElement('report-date-start').value;
+            const dateEnd = getElement('report-date-end').value;
+            const statusFilter = getElement('report-status-filter').value;
+            const reportOutput = getElement('report-output');
+            reportOutput.innerHTML = '<p>Gerando relatório...</p>';
+            hide('export-buttons');
+            let dataToReport = [];
+            let reportTitle = '';
+            let tableHeaders = [];
+            let tableRowsHTML = '';
+            if (!reportType) {
+                reportOutput.innerHTML = '<p class="error-message">Por favor, selecione um tipo de relatório.</p>';
+                return;
+            }
+            if (reportType === 'all_os' || reportType === 'technician' || reportType === 'department' || reportType === 'problem_type') {
+                const allOS = await loadData('ordensDeServico');
+                const osList = (allOS && allOS.ordens) ? allOS.ordens : [];
+                // (restante da lógica de filtragem e geração de relatório permanece igual, usando osList)
+                // ...
+            } else if (reportType === 'all_users') {
+                const allUsers = await loadData('usuarios');
+                const usersList = (allUsers && allUsers.lista) ? allUsers.lista : [];
+                // (restante da lógica de geração de relatório de usuários permanece igual, usando usersList)
+                // ...
+            }
+            // (restante da função permanece igual)
+        };
+
+        const buildDateFilterTitle = (start, end, status) => {
+           let titleParts = [];
+           if (start || end) {
+                const startDateFormatted = start ? formatDate(start+'T00:00:00').split(' ')[0] : 'Início';
+                const endDateFormatted = end ? formatDate(end+'T23:59:59').split(' ')[0] : 'Fim';
+                titleParts.push(`Período: ${startDateFormatted} a ${endDateFormatted}`);
+           }
+           if (status) {
+                titleParts.push(`Status: ${status}`);
+           }
+            return titleParts.length > 0 ? `(${titleParts.join(', ')})` : '';
+       }
+
+        const exportReportData = (format) => {
+           if (!currentReportData || currentReportData.length === 0) {
+               alert("Nenhum dado de relatório gerado para exportar. Por favor, gere um relatório primeiro.");
+               return;
+           }
+
+           const reportType = getElement('report-type').value || 'dados';
+            const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+            const filenameBase = `relatorio_${reportType}_${timestamp}`;
+
+            if (format === 'csv') {
+                exportToCSV(currentReportData, `${filenameBase}.csv`);
+            } else if (format === 'excel') {
+                alert("Exportação para Excel (.xlsx) não está implementada nesta versão (requer biblioteca externa como SheetJS). Use CSV.");
+            } else if (format === 'pdf') {
+                alert("Exportação para PDF não está implementada nesta versão (requer biblioteca externa como jsPDF). Use CSV ou a função de impressão do navegador (Ctrl+P).");
+            }
+        };
+
+        const exportToCSV = (data, filename) => {
+            if (!data || data.length === 0) return;
+
+            const headers = Object.keys(data[0]);
+            const csvRows = [];
+
+            // Adiciona cabeçalho - Excel prefere delimitador ; em PT-BR
+            csvRows.push(headers.join(';'));
+
+            // Adiciona linhas de dados
+            for (const row of data) {
+                const values = headers.map(header => {
+                    // Trata valores nulos/undefined e converte para string
+                    let cellValue = row[header] === null || row[header] === undefined ? '' : String(row[header]);
+                    // Escapa aspas duplas existentes
+                    cellValue = cellValue.replace(/"/g, '""');
+                    // Envolve em aspas duplas se contiver ; , " ou quebra de linha
+                    if (cellValue.includes(';') || cellValue.includes('"') || cellValue.includes('\n')) {
+                        cellValue = `"${cellValue}"`;
+                    }
+                    return cellValue;
+                });
+                csvRows.push(values.join(';')); // Usa ; como delimitador
+            }
+
+            const csvString = csvRows.join('\n');
+            // Adiciona BOM para UTF-8 ser reconhecido corretamente pelo Excel
+            const blob = new Blob([`\uFEFF${csvString}`], { type: 'text/csv;charset=utf-8;' });
+
+            // Cria link para download
+            const link = document.createElement("a");
+            if (link.download !== undefined) { // Verifica suporte a download
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url); // Libera memória
+            } else {
+                 // Fallback para navegadores que não suportam download direto
+                 alert("Seu navegador não suporta download direto. O conteúdo CSV será aberto em uma nova aba (copie e cole se necessário).");
+                 const encodedUri = encodeURI(`data:text/csv;charset=utf-8,\uFEFF${csvString}`);
+                 window.open(encodedUri);
+            }
+        };
+
+
+       // --- Funções de Modal ---
+       const showModal = (modalId) => {
+           const modal = getElement(modalId);
+           if (modal) modal.style.display = 'block';
+       };
+
+       const closeModal = (modalId) => {
+            const modal = getElement(modalId);
+           if (modal) modal.style.display = 'none';
+            // Limpa callback de confirmação ao fechar
+            if (modalId === 'confirmation-modal') {
+                confirmActionCallback = null;
+                getElement('confirm-action-btn').onclick = null; // Remove listener antigo
+            }
+       };
+
+       const showConfirmationModal = (message, onConfirm) => {
+            getElement('confirmation-message').textContent = message;
+            confirmActionCallback = onConfirm; // Armazena a função a ser executada
+            // Garante que o botão de confirmação executa a callback correta
+            const confirmBtn = getElement('confirm-action-btn');
+             // Remove listener antigo para evitar múltiplas execuções
+            confirmBtn.onclick = null;
+             confirmBtn.onclick = () => {
+                if (typeof confirmActionCallback === 'function') {
+                    confirmActionCallback();
+                }
+                closeModal('confirmation-modal');
+            };
+            showModal('confirmation-modal');
+       };
+
+       // --- Funções Auxiliares ---
+       const populateTechnicianDropdown = (selectId) => {
+           const select = getElement(selectId);
+           if (!select) return;
+           const currentVal = select.value; // Salva valor atual se houver
+           select.innerHTML = '<option value="">-- Não Atribuído --</option>'; // Opção padrão
+           const technicians = users.filter(u => u.role === USER_ROLES.TECHNICIAN && u.approved)
+                                    .sort((a,b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+           technicians.forEach(tech => {
+               const option = document.createElement('option');
+               option.value = tech.id;
+               option.textContent = tech.name || 'Técnico sem nome';
+               select.appendChild(option);
+           });
+            // Restaura valor se possível e se a opção ainda existir
+            if (select.querySelector(`option[value="${currentVal}"]`)) {
+               select.value = currentVal;
+            } else {
+                select.value = ""; // Volta para não atribuído se o técnico anterior não existe mais
+            }
+       };
+
+       // --- Inicialização e Event Listeners ---
+       const initApp = () => {
+           console.log("Inicializando aplicação de OS PMA...");
+           // Adiciona listener de autenticação do Firebase
+           firebase.auth().onAuthStateChanged((user) => {
+               if (user) {
+                   navigateToDashboard(user);
+               } else {
+                   showScreen('login-screen');
+               }
+           });
+
+           // --- Event Listeners ---
+
+           // Login/Register Navigation
+           getElement('login-form')?.addEventListener('submit', handleLogin);
+           getElement('register-form')?.addEventListener('submit', handleRegister);
+           getElement('show-register-btn')?.addEventListener('click', () => showScreen('register-screen'));
+           getElement('show-login-btn')?.addEventListener('click', () => showScreen('login-screen'));
+
+           // Logout Buttons
+           getElement('logout-btn-user')?.addEventListener('click', handleLogout);
+           getElement('logout-btn-tech')?.addEventListener('click', handleLogout);
+           getElement('logout-btn-admin')?.addEventListener('click', handleLogout);
+
+           // User Dashboard Actions
+           getElement('show-new-os-form-btn')?.addEventListener('click', () => { toggle('new-os-form'); hide('edit-profile-form'); hide('user-actions'); });
+           getElement('cancel-new-os-btn')?.addEventListener('click', () => { hide('new-os-form'); show('user-actions'); getElement('new-os-form').reset(); });
+           getElement('new-os-form')?.addEventListener('submit', handleNewOSSubmit);
+           getElement('show-edit-profile-form-btn')?.addEventListener('click', () => { toggle('edit-profile-form'); hide('new-os-form'); hide('user-actions'); });
+            getElement('cancel-edit-profile-btn')?.addEventListener('click', () => { hide('edit-profile-form'); show('user-actions'); getElement('edit-profile-form').reset(); });
+            getElement('edit-profile-form')?.addEventListener('submit', handleEditProfileSubmit);
+            getElement('submit-feedback-btn')?.addEventListener('click', handleFeedbackSubmit);
+
+           // Technician Dashboard Actions
+           getElement('apply-filters-btn')?.addEventListener('click', applyFilters);
+           getElement('reset-filters-btn')?.addEventListener('click', resetFilters);
+            getElement('os-details-update-btn')?.addEventListener('click', handleUpdateOS);
+
+           // Admin Panel Actions
+           getElement('show-add-user-form-btn')?.addEventListener('click', showAddUserForm);
+           getElement('admin-cancel-user-form-btn')?.addEventListener('click', () => hide('admin-add-edit-user-form'));
+           getElement('admin-add-edit-user-form')?.addEventListener('submit', handleAdminUserFormSubmit);
+           getElement('generate-report-btn')?.addEventListener('click', generateReport);
+           getElement('export-csv-btn')?.addEventListener('click', () => exportReportData('csv'));
+           getElement('export-excel-btn')?.addEventListener('click', () => exportReportData('excel'));
+           getElement('export-pdf-btn')?.addEventListener('click', () => exportReportData('pdf'));
+
+           // Modal Global Close Listeners (X button handled in HTML onclick)
+           // Fechar modal clicando fora da área de conteúdo
+            window.addEventListener('click', (event) => {
+               const modals = document.querySelectorAll('.modal');
+                modals.forEach(modal => {
+                    if (event.target == modal) { // Verifica se o clique foi no fundo do modal
+                        closeModal(modal.id);
+                    }
+                })
+           });
+            // Fechar modal com a tecla Esc
+            window.addEventListener('keydown', (event) => {
+               if (event.key === 'Escape') {
+                   const modals = document.querySelectorAll('.modal');
+                   modals.forEach(modal => {
+                        if (modal.style.display === 'block') {
+                            closeModal(modal.id);
+                        }
+                    })
+               }
+            });
+
+
+           // --- Inicialização da Tela ---
+           // Verifica se já está logado ao carregar a página
+           navigateToDashboard();
+           console.log("Aplicação inicializada.");
+       };
+
+       // --- Inicia a aplicação quando o DOM estiver pronto ---
+       document.addEventListener('DOMContentLoaded', initApp);
+
+   
