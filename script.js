@@ -1,9 +1,5 @@
         // --- Variáveis Globais e Estado da Aplicação ---
-        let users = [];
-        let serviceOrders = [];
-        let loggedInUser = null;
-        let currentReportData = []; // Para armazenar dados do último relatório gerado
-        let confirmActionCallback = null; // Callback para modal de confirmação
+        // REMOVIDO: users, serviceOrders, loggedInUser, currentReportData, confirmActionCallback
 
         // --- Constantes ---
         const USER_ROLES = {
@@ -74,7 +70,7 @@
         const normalizePhone = (phone) => phone ? String(phone).replace(/\D/g, '') : '';
 
         // --- Funções de Persistência (localStorage) ---
-        // REMOVIDO: saveData e loadData duplicados. Use as funções do firebase-config.js
+        // REMOVIDO: saveData, loadData e toda lógica de manipulação local
 
         // --- Funções de Navegação ---
         const showScreen = (screenId) => {
@@ -83,58 +79,33 @@
         };
 
         // --- Funções de Autenticação ---
-        const handleLogin = (event) => {
+        const handleLogin = async (event) => {
             event.preventDefault();
-            // MODIFICADO: Obtém do input 'login-identity'
             const identity = getElement('login-identity').value.trim();
             const password = getElement('login-password').value;
             const loginError = getElement('login-error');
             hide(loginError.id);
 
             if (!identity || !password) {
-                 loginError.textContent = 'Por favor, preencha o campo de login e senha.';
-                 show(loginError.id);
-                 return;
+                loginError.textContent = 'Por favor, preencha o campo de login e senha.';
+                show(loginError.id);
+                return;
             }
 
-            // MODIFICADO: Lógica de busca do usuário
-            const normalizedIdentity = identity.toLowerCase();
-            const normalizedPhoneInput = normalizePhone(identity); // Remove não-dígitos da entrada
-
-            const user = users.find(u => {
-                // 1. Verifica pelo e-mail (case-insensitive)
-                if (u.email.toLowerCase() === normalizedIdentity) return true;
-                // 2. Verifica pelo telefone (comparando apenas dígitos)
-                if (u.whatsapp && normalizePhone(u.whatsapp) === normalizedPhoneInput && normalizedPhoneInput !== '') return true;
-                 // 3. Verifica pelo login especial "Admin" (case-insensitive) associado ao email do admin especial
-                 if (normalizedIdentity === 'admin' && u.email === SPECIAL_ADMIN_EMAIL) return true;
-                 // 4. Opcional: Permitir login pelo nome exato? (Descomente se desejar)
-                 // if (u.name === identity) return true;
-
-                return false;
-            });
-            // Fim da Modificação na busca
-
-            if (user) {
-                if (!user.approved) {
-                    loginError.textContent = 'Seu cadastro está pendente de aprovação.';
-                    show(loginError.id);
-                } else if (user.password === password) { // Comparação simples - NÃO SEGURO
-                    loggedInUser = user;
-                    saveData();
-                    navigateToDashboard();
-                    getElement('login-form').reset(); // Limpa o formulário
-                } else {
-                    loginError.textContent = 'Senha incorreta.';
-                    show(loginError.id);
-                }
-            } else {
-                loginError.textContent = 'Usuário não encontrado ou credenciais inválidas.';
+            try {
+                // Usa signIn do firebase-config.js
+                const user = await signIn(identity, password);
+                // Salva usuário logado em memória (opcional: window.currentUser = user)
+                // Redireciona para dashboard
+                navigateToDashboard(user);
+                getElement('login-form').reset();
+            } catch (error) {
+                loginError.textContent = 'Usuário ou senha inválidos.';
                 show(loginError.id);
             }
         };
 
-        const handleRegister = (event) => {
+        const handleRegister = async (event) => {
             event.preventDefault();
             const name = getElement('register-name').value.trim();
             const department = getElement('register-department').value.trim();
@@ -144,61 +115,34 @@
             const registerMessage = getElement('register-message');
             hide(registerMessage.id);
 
-            // Validação básica
             if (!name || !department || !whatsapp || !email || !password) {
                 registerMessage.textContent = 'Por favor, preencha todos os campos.';
                 registerMessage.className = 'error-message';
                 show(registerMessage.id);
                 return;
             }
-             // Validação de email simples
             if (!/\S+@\S+\.\S+/.test(email)) {
-                 registerMessage.textContent = 'Por favor, insira um e-mail válido.';
-                 registerMessage.className = 'error-message';
-                 show(registerMessage.id);
-                 return;
-             }
-
-             // Verifica duplicidade de email ou telefone (normalizado)
-            const normalizedNewPhone = normalizePhone(whatsapp);
-            if (users.some(u => u.email === email || (u.whatsapp && normalizePhone(u.whatsapp) === normalizedNewPhone && normalizedNewPhone !== ''))) {
-                registerMessage.textContent = 'Este e-mail ou telefone já está cadastrado.';
+                registerMessage.textContent = 'Por favor, insira um e-mail válido.';
                 registerMessage.className = 'error-message';
                 show(registerMessage.id);
                 return;
             }
-            // Verifica se o email é o reservado do admin especial
-            if (email === SPECIAL_ADMIN_EMAIL) {
-                 registerMessage.textContent = 'Este e-mail é reservado para administração.';
-                 registerMessage.className = 'error-message';
-                 show(registerMessage.id);
-                 return;
+            try {
+                // Usa signUp do firebase-config.js
+                await signUp(email, password);
+                registerMessage.textContent = 'Cadastro realizado com sucesso! Faça login para continuar.';
+                registerMessage.className = 'success-message';
+                show(registerMessage.id);
+                getElement('register-form').reset();
+                setTimeout(() => {
+                    hide(registerMessage.id);
+                    showScreen('login-screen');
+                }, 3000);
+            } catch (error) {
+                registerMessage.textContent = 'Erro ao cadastrar: ' + (error.message || 'Verifique os dados.');
+                registerMessage.className = 'error-message';
+                show(registerMessage.id);
             }
-
-
-            const newUser = {
-                id: generateId(),
-                name: name,
-                department: department,
-                whatsapp: whatsapp,
-                email: email,
-                password: password, // Armazenar senha em texto plano (NÃO SEGURO)
-                role: USER_ROLES.USER,
-                approved: false // Novo usuário precisa de aprovação
-            };
-
-            users.push(newUser);
-            saveData();
-
-            registerMessage.textContent = 'Cadastro realizado com sucesso! Aguarde aprovação do administrador.';
-            registerMessage.className = 'success-message'; // Adicionar estilo se necessário
-            show(registerMessage.id);
-            getElement('register-form').reset();
-            // Opcional: Redirecionar para login após alguns segundos
-            setTimeout(() => {
-                 hide(registerMessage.id);
-                 showScreen('login-screen');
-            }, 3000);
         };
 
         const handleLogout = () => {
