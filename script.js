@@ -1,4 +1,3 @@
-
         // --- Variáveis Globais e Estado da Aplicação ---
         let users = [];
         let serviceOrders = [];
@@ -75,106 +74,7 @@
         const normalizePhone = (phone) => phone ? String(phone).replace(/\D/g, '') : '';
 
         // --- Funções de Persistência (localStorage) ---
-        const saveData = () => {
-            try {
-                localStorage.setItem('pma_os_users', JSON.stringify(users));
-                localStorage.setItem('pma_os_serviceOrders', JSON.stringify(serviceOrders));
-                localStorage.setItem('pma_os_loggedInUser', JSON.stringify(loggedInUser));
-            } catch (error) {
-                console.error("Erro ao salvar dados no localStorage:", error);
-                alert("Erro ao salvar dados. O localStorage pode estar cheio ou indisponível.");
-            }
-        };
-
-        const loadData = () => {
-            let dataChanged = false; // Flag para saber se precisa salvar no final
-            try {
-                users = JSON.parse(localStorage.getItem('pma_os_users') || '[]');
-                serviceOrders = JSON.parse(localStorage.getItem('pma_os_serviceOrders') || '[]');
-                loggedInUser = JSON.parse(localStorage.getItem('pma_os_loggedInUser') || 'null');
-            } catch (error) {
-                 console.error("Erro ao carregar dados do localStorage:", error);
-                 alert("Erro ao carregar dados salvos. Iniciando com dados padrão.");
-                 users = [];
-                 serviceOrders = [];
-                 loggedInUser = null;
-            }
-
-
-            // MODIFICADO: Garante que o admin especial (Admin/senha123) exista
-            const specialAdminExists = users.some(u => u.email === SPECIAL_ADMIN_EMAIL);
-            if (!specialAdminExists) {
-                console.log("Admin especial não encontrado. Criando...");
-                users.push({
-                    id: generateId(),
-                    name: 'Admin', // Nome usado para referência, o login pode ser 'Admin'
-                    department: 'Administração',
-                    whatsapp: '(00) 00000-0000', // Telefone placeholder
-                    email: SPECIAL_ADMIN_EMAIL, // Email único
-                    password: 'senha123',
-                    role: USER_ROLES.ADMIN,
-                    approved: true
-                });
-                dataChanged = true;
-            }
-
-            // Cria outros usuários padrão APENAS se não existir NENHUM usuário ainda
-            // (exceto o admin especial que é verificado acima)
-             if (users.filter(u => u.email !== SPECIAL_ADMIN_EMAIL).length === 0) {
-                console.log("Nenhum usuário além do admin especial. Criando técnico e usuário exemplos.");
-                // Cria um técnico exemplo
-                users.push({
-                    id: generateId(),
-                    name: 'Técnico Exemplo',
-                    department: 'Núcleo de Tecnologia',
-                    whatsapp: '(11) 11111-1111',
-                    email: 'tecnico@aquidauana.ms.gov.br',
-                    password: 'tech', // SENHA FRACA - APENAS PARA SIMULAÇÃO
-                    role: USER_ROLES.TECHNICIAN,
-                    approved: true
-                });
-                 // Cria um usuário exemplo
-                users.push({
-                    id: generateId(),
-                    name: 'Usuário Comum Exemplo',
-                    department: 'Secretaria de Educação',
-                    whatsapp: '(22) 22222-2222',
-                    email: 'usuario@email.com',
-                    password: 'user', // SENHA FRACA - APENAS PARA SIMULAÇÃO
-                    role: USER_ROLES.USER,
-                    approved: true // Aprovado para facilitar teste
-                });
-                 dataChanged = true;
-            }
-
-             // Garante que serviceOrders tenha a propriedade 'updates', prioridade e técnico
-             serviceOrders = serviceOrders.map(os => {
-                 let updated = false;
-                 let newOs = {...os};
-                 if (!newOs.updates) {
-                     newOs.updates = [];
-                     updated = true;
-                 }
-                 if (!newOs.priority) {
-                     newOs.priority = OS_PRIORITY.MEDIA;
-                      updated = true;
-                 }
-                  if (newOs.technicianId === undefined) {
-                      newOs.technicianId = null;
-                      updated = true;
-                  }
-                  if (newOs.technicianName === undefined) {
-                       newOs.technicianName = 'Não atribuído';
-                       updated = true;
-                   }
-                 if (updated) dataChanged = true;
-                 return newOs;
-            });
-
-            if (dataChanged) {
-                saveData(); // Salva apenas se algo foi modificado/adicionado
-            }
-        };
+        // REMOVIDO: saveData e loadData duplicados. Use as funções do firebase-config.js
 
         // --- Funções de Navegação ---
         const showScreen = (screenId) => {
